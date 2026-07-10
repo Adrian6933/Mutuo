@@ -17,6 +17,8 @@ import {
   activeTeamIdx,
   rivalTeam,
   ffaBystanderNames,
+  ffaBystanders,
+  circularDelta,
   totalRounds,
   isGameOver,
   leaders,
@@ -302,23 +304,33 @@ export default function Game() {
                     ? s.tiebreakKeys
                       ? `Para ${guesserNames(s)} (en muerte súbita solo puntúa quien adivina).`
                       : `Para ${psychicName(s)} y ${guesserNames(s)}.`
-                    : s.bet === null
-                      ? 'Nadie puntúa esta ronda.'
-                      : ''}
-                  {s.bet !== null && (
-                    <>
-                      {' '}
-                      Apuesta de {ffaBystanderNames(s)}:{' '}
-                      {s.bet === 'left' ? '◀ izquierda' : 'derecha ▶'} —{' '}
-                      {s.betWon ? (
-                        <b>acierta, +1</b>
-                      ) : s.lastPts === 4 ? (
-                        'el 4 la anula'
-                      ) : (
-                        'falla'
-                      )}
-                      .
-                    </>
+                    : 'Nadie puntúa por la aguja.'}
+                  {s.bets && Object.keys(s.bets).length > 0 && (
+                    <div className="bystander-bets-summary">
+                      <p className="bystander-bets-summary__title">Apuestas de los demás:</p>
+                      <ul className="bystander-bets-summary__list">
+                        {ffaBystanders(s).map((p) => {
+                          const vote = s.bets?.[p.id.toString()];
+                          if (!vote) return null;
+                          const voteLabel =
+                            vote === 'left' ? '◀ Izquierda' :
+                            vote === 'right' ? 'Derecha ▶' :
+                            vote === 'exact' ? '🎯 4 Exacto' :
+                            vote === 'miss' ? '❌ No ha adivinado' : 'Ninguno';
+                          const delta = circularDelta(s.target, s.needle);
+                          const won = vote === 'miss'
+                            ? s.lastPts === 0
+                            : vote === 'exact'
+                              ? s.lastPts === 4
+                              : (s.lastPts > 0 && s.lastPts !== 4 && (vote === 'left' ? delta < 0 : delta > 0));
+                          return (
+                            <li key={p.id} className="bystander-bets-summary__item">
+                              <span><b>{p.name}</b>: {voteLabel}</span> {won ? <b className="won-text">acierta (+1)</b> : <span>falla</span>}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
                   )}
                 </>
               ) : (
@@ -330,11 +342,9 @@ export default function Game() {
                       : ''}
                   {s.bet !== null && (
                     <>
-                      {rivalTeam(s).name} apostó {s.bet === 'left' ? '◀ izquierda' : 'derecha ▶'}:{' '}
+                      {rivalTeam(s).name} apostó {s.bet === 'left' ? '◀ izquierda' : s.bet === 'right' ? 'derecha ▶' : s.bet === 'exact' ? '🎯 4 Exacto' : '❌ no ha adivinado'}:{' '}
                       {s.betWon ? (
                         <b>acierta, +1</b>
-                      ) : s.lastPts === 4 ? (
-                        'el 4 anula la apuesta'
                       ) : (
                         'falla'
                       )}

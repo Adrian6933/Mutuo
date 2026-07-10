@@ -43,7 +43,8 @@ export type Action =
   | { type: 'CLUE_GIVEN'; text?: string }
   | { type: 'SET_NEEDLE'; angle: number }
   | { type: 'CONFIRM_GUESS' }
-  | { type: 'PLACE_BET'; side: BetSide }
+  | { type: 'PLACE_BET'; side: BetSide; playerId?: number }
+  | { type: 'REVEAL_FFA' }
   | { type: 'SHOW_STANDINGS' }
   | { type: 'NEXT_ROUND' }
   | { type: 'PLAY_AGAIN' }
@@ -84,6 +85,7 @@ export const initialState: GameState = {
   target: 90,
   needle: 90,
   bet: null,
+  bets: null,
   betWon: false,
   lastPts: 0,
   lastGains: [],
@@ -230,30 +232,61 @@ function moveItem<T>(arr: T[], from: number, to: number): T[] {
 /* ---- puntuación ---- */
 
 /** Lado del objetivo respecto a la aguja con envoltura circular (módulo 180). */
-function circularDelta(target: number, needle: number): number {
+export function circularDelta(target: number, needle: number): number {
   return ((((target - needle) % 180) + 270) % 180) - 90;
 }
 
-function applyRevealFfa(s: GameState, side: BetSide | null): GameState {
+function applyRevealFfaMultiple(s: GameState, bets: Record<string, BetSide> | null): GameState {
   const pts = scoreFor(s.needle, s.target);
   const psy = ffaPsychic(s);
   const gsr = ffaGuesser(s);
   const delta = circularDelta(s.target, s.needle);
-  const betWon = side !== null && pts !== 4 && (side === 'left' ? delta < 0 : delta > 0);
-  const bystanders = betWon ? ffaBystanders(s) : [];
-  // En muerte súbita solo puntúa quien adivina (si no, un empate a dos jamás se rompería).
+  
+  // En muerte súbita solo puntúa quien adivina.
   const scorers = s.tiebreakKeys ? [gsr] : [psy, gsr];
-  const scoreIds = new Map(scorers.map((p) => [p.id, pts]));
-  for (const b of bystanders) scoreIds.set(b.id, (scoreIds.get(b.id) ?? 0) + 1);
+  const scoreIds = new Map<number, number>(scorers.map((p) => [p.id, pts]));
+  
+  const bystanders = ffaBystanders(s);
+  const winningBystanders: Player[] = [];
+  let anyBetWon = false;
+
+  for (const b of bystanders) {
+    const playerBet = bets ? bets[b.id.toString()] : null;
+    if (playerBet) {
+      const won = playerBet === 'miss'
+        ? pts === 0
+        : playerBet === 'exact'
+          ? pts === 4
+          : (pts > 0 && pts !== 4 && (playerBet === 'left' ? delta < 0 : delta > 0));
+      if (won) {
+        winningBystanders.push(b);
+        scoreIds.set(b.id, (scoreIds.get(b.id) ?? 0) + 1);
+        anyBetWon = true;
+      }
+    }
+  }
+
   const players = s.players.map((p) =>
     scoreIds.has(p.id) ? { ...p, score: p.score + scoreIds.get(p.id)! } : p
   );
+
   const lastGains = [
     ...(pts > 0 ? scorers.map((p) => ({ key: `p${p.id}`, label: p.name, pts })) : []),
-    ...bystanders.map((p) => ({ key: `p${p.id}`, label: p.name, pts: 1 })),
+    ...winningBystanders.map((p) => ({ key: `p${p.id}`, label: p.name, pts: 1 })),
   ];
-  const history = [...s.history, { psychic: psy.name, guesser: gsr.name, pts, betWon }];
-  return { ...s, bet: side, betWon, lastPts: pts, lastGains, history, players, phase: 'reveal' };
+
+  const history = [...s.history, { psychic: psy.name, guesser: gsr.name, pts, betWon: anyBetWon }];
+  return { ...s, bets, betWon: anyBetWon, lastPts: pts, lastGains, history, players, phase: 'reveal' };
+}
+
+function applyRevealFfa(s: GameState, side: BetSide | null): GameState {
+  const bMap: Record<string, BetSide> = {};
+  if (side !== null) {
+    for (const b of ffaBystanders(s)) {
+      bMap[b.id.toString()] = side;
+    }
+  }
+  return applyRevealFfaMultiple(s, side !== null ? bMap : null);
 }
 
 function applyRevealTeams(s: GameState, side: BetSide | null): GameState {
@@ -262,7 +295,12 @@ function applyRevealTeams(s: GameState, side: BetSide | null): GameState {
   const rival = rivalTeam(s);
   const delta = circularDelta(s.target, s.needle);
   const betWon =
-    side !== null && pts !== 4 && (side === 'left' ? delta < 0 : delta > 0);
+    side !== null &&
+    (side === 'miss'
+      ? pts === 0
+      : side === 'exact'
+        ? pts === 4
+        : (pts > 0 && pts !== 4 && (side === 'left' ? delta < 0 : delta > 0)));
   const teams = s.teams.map((t, i) => {
     let add = 0;
     if (i === atIdx) add += pts;
@@ -327,6 +365,7 @@ function freshRound(s: GameState): GameState {
     needle: 90,
     target: randomTarget(),
     bet: null,
+    bets: null,
     betWon: false,
     lastPts: 0,
     lastGains: [],
@@ -557,8 +596,19 @@ export function reducer(s: GameState, a: Action): GameState {
       return s.mode === 'ffa' ? applyRevealFfa(s, null) : applyRevealTeams(s, null);
     }
 
-    case 'PLACE_BET':
-      return s.mode === 'ffa' ? applyRevealFfa(s, a.side) : applyRevealTeams(s, a.side);
+    case 'PLACE_BET': {
+      if (s.mode === 'teams') {
+        return applyRevealTeams(s, a.side);
+      }
+      if (a.playerId === undefined || a.playerId === null) {
+        return applyRevealFfa(s, a.side);
+      }
+      const newBets = { ...(s.bets || {}), [a.playerId.toString()]: a.side };
+      return { ...s, bets: newBets };
+    }
+
+    case 'REVEAL_FFA':
+      return applyRevealFfaMultiple(s, s.bets);
 
     case 'SHOW_STANDINGS':
       return { ...s, phase: 'standings' };

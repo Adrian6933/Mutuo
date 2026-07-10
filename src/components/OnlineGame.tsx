@@ -11,6 +11,8 @@ import {
   activeTeam,
   rivalTeam,
   ffaBystanderNames,
+  ffaBystanders,
+  circularDelta,
   isGameOver,
   leaders,
   totalRounds,
@@ -58,6 +60,7 @@ export default function OnlineGame({
   onLeave,
 }: Props) {
   const role = roleFor(s, assign, uid);
+  const hasVoted = s.mode === 'ffa' && s.bets && role.playerId !== null && s.bets[role.playerId.toString()] !== undefined;
   const [localNeedle, setLocalNeedle] = useState(90);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const lastSent = useRef(0);
@@ -241,7 +244,11 @@ export default function OnlineGame({
 
       {s.phase === 'rival-bet' &&
         (role.isRival ? (
-          <RivalBet rivalName="Vuestra apuesta" onBet={(side) => sendAction({ type: 'PLACE_BET', side })} />
+          hasVoted ? (
+            <Waiting kicker="Tu apuesta" text="Has votado. Esperando al resto de jugadores…" />
+          ) : (
+            <RivalBet rivalName="Vuestra apuesta" onBet={(side) => sendAction({ type: 'PLACE_BET', side })} />
+          )
         ) : (
           <Waiting
             kicker={s.mode === 'ffa' ? 'Apuesta de los demás' : 'Apuesta rival'}
@@ -261,15 +268,33 @@ export default function OnlineGame({
                   ? s.tiebreakKeys
                     ? `Para ${guesserNames(s)} (en muerte súbita solo puntúa quien adivina).`
                     : `Para ${psy} y ${guesserNames(s)}.`
-                  : s.bet === null
-                    ? 'Nadie puntúa esta ronda.'
-                    : ''}
-                {s.bet !== null && (
-                  <>
-                    {' '}
-                    Apuesta de {ffaBystanderNames(s)}: {s.bet === 'left' ? '◀ izquierda' : 'derecha ▶'} —{' '}
-                    {s.betWon ? <b>acierta, +1</b> : s.lastPts === 4 ? 'el 4 la anula' : 'falla'}.
-                  </>
+                  : 'Nadie puntúa por la aguja.'}
+                {s.bets && Object.keys(s.bets).length > 0 && (
+                  <div className="bystander-bets-summary">
+                    <p className="bystander-bets-summary__title">Apuestas de los demás:</p>
+                    <ul className="bystander-bets-summary__list">
+                      {ffaBystanders(s).map((p) => {
+                        const vote = s.bets?.[p.id.toString()];
+                        if (!vote) return null;
+                        const voteLabel =
+                          vote === 'left' ? '◀ Izquierda' :
+                          vote === 'right' ? 'Derecha ▶' :
+                          vote === 'exact' ? '🎯 4 Exacto' :
+                          vote === 'miss' ? '❌ No ha adivinado' : 'Ninguno';
+                        const delta = circularDelta(s.target, s.needle);
+                        const won = vote === 'miss'
+                          ? s.lastPts === 0
+                          : vote === 'exact'
+                            ? s.lastPts === 4
+                            : (s.lastPts > 0 && s.lastPts !== 4 && (vote === 'left' ? delta < 0 : delta > 0));
+                        return (
+                          <li key={p.id} className="bystander-bets-summary__item">
+                            <span><b>{p.name}</b>: {voteLabel}</span> {won ? <b className="won-text">acierta (+1)</b> : <span>falla</span>}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
                 )}
               </>
             ) : (
@@ -284,9 +309,13 @@ export default function OnlineGame({
               </>
             )}
           </p>
-          <button className="btn btn--primary" onClick={() => sendAction({ type: 'SHOW_STANDINGS' })}>
-            Ver clasificación
-          </button>
+          {isHost ? (
+            <button className="btn btn--primary" onClick={() => sendAction({ type: 'SHOW_STANDINGS' })}>
+              Ver clasificación
+            </button>
+          ) : (
+            <p className="end-config__hint" style={{ marginTop: '14px' }}>Esperando a que el anfitrión avance…</p>
+          )}
         </section>
       )}
 
@@ -295,15 +324,19 @@ export default function OnlineGame({
           <p className="panel__kicker">{s.tiebreakKeys ? '⚡ Muerte súbita' : `Ronda ${s.round + 1}`}</p>
           <h2 className="panel__title">Clasificación</h2>
           <ScoreTable rows={rows} />
-          <button className="btn btn--primary" onClick={() => sendAction({ type: 'NEXT_ROUND' })}>
-            {s.tiebreakKeys
-              ? 'Continuar'
-              : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak)
-                ? 'Resultado final'
-                : isGameOver(s)
-                  ? '⚡ ¡Desempate!'
-                  : 'Siguiente ronda'}
-          </button>
+          {isHost ? (
+            <button className="btn btn--primary" onClick={() => sendAction({ type: 'NEXT_ROUND' })}>
+              {s.tiebreakKeys
+                ? 'Continuar'
+                : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak)
+                  ? 'Resultado final'
+                  : isGameOver(s)
+                    ? '⚡ ¡Desempate!'
+                    : 'Siguiente ronda'}
+            </button>
+          ) : (
+            <p className="end-config__hint" style={{ marginTop: '14px' }}>Esperando a que el anfitrión inicie la siguiente ronda…</p>
+          )}
         </section>
       )}
 

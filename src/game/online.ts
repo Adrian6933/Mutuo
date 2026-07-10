@@ -22,6 +22,7 @@ import {
   DEFAULT_OPTIONS,
   ffaPsychic,
   ffaGuesser,
+  ffaBystanders,
   activeTeam,
   rivalTeam,
   teamPsychic,
@@ -104,6 +105,7 @@ function normalizeGame(raw: Partial<GameState> | null): GameState | null {
     tiebreakKeys: raw.tiebreakKeys ?? null,
     card: raw.card ?? null,
     bet: raw.bet ?? null,
+    bets: raw.bets ?? null,
   };
 }
 
@@ -185,7 +187,7 @@ function actionAllowed(
       return role.isRival;
     case 'SHOW_STANDINGS':
     case 'NEXT_ROUND':
-      return role.isMember;
+      return senderUid === meta.hostUid;
     case 'PLAY_AGAIN':
       return senderUid === meta.hostUid;
     default:
@@ -343,7 +345,12 @@ export function useLobby() {
       if (action.type === 'CONFIRM_GUESS' && liveRef.current.needle !== undefined) {
         next = reducer(next, { type: 'SET_NEEDLE', angle: liveRef.current.needle });
       }
-      next = reducer(next, action);
+      let finalAction = action;
+      if (action.type === 'PLACE_BET') {
+        const playerId = asg[senderUid];
+        finalAction = { ...action, playerId };
+      }
+      next = reducer(next, finalAction);
       if (next === st) return;
       publish(next);
       afterApply(next);
@@ -377,6 +384,23 @@ export function useLobby() {
             applyAction({ type: 'CONFIRM_GUESS' }, uid);
           }
         }, st.options.timerSecs * 1000 + 300);
+      } else if (st.phase === 'rival-bet') {
+        const end = Date.now() + 5000;
+        void set(ref(db, `${base}/live/timerEnd`), end);
+        const round = st.round;
+        timerHandle.current = setTimeout(() => {
+          const cur = hostState.current;
+          if (cur && cur.phase === 'rival-bet' && cur.round === round) {
+            if (cur.mode === 'ffa') {
+              const next = reducer(cur, { type: 'REVEAL_FFA' });
+              hostState.current = next;
+              void set(ref(db, `${base}/game`), stripDeck(next));
+              void remove(ref(db, `${base}/live/timerEnd`));
+            } else {
+              applyAction({ type: 'PLACE_BET', side: null as any }, uid);
+            }
+          }
+        }, 5300);
       } else {
         void remove(ref(db, `${base}/live/timerEnd`));
       }
@@ -637,6 +661,40 @@ export function useLobby() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid, lobbyId]);
+
+  /* host: avanzar fase si todos los online han votado en ffa */
+  useEffect(() => {
+    if (!lobbyId || !uid || !isHost || !game || game.phase !== 'rival-bet' || game.mode !== 'ffa') return;
+    const db = getDb();
+    const base = `lobbies/${lobbyId}`;
+    const asg = assign;
+    if (!asg) return;
+
+    const onlineBystanders = Object.entries(players)
+      .filter(([pUid, p]) => {
+        if (!p.online) return false;
+        const pId = asg[pUid];
+        return pId !== undefined && pId !== null && ffaBystanders(game).some((b) => b.id === pId);
+      });
+
+    const allVoted = onlineBystanders.every(([pUid]) => {
+      const pId = asg[pUid];
+      return game.bets && game.bets[pId!.toString()] !== undefined;
+    });
+
+    if (allVoted || onlineBystanders.length === 0) {
+      const next = reducer(game, { type: 'REVEAL_FFA' });
+      if (hostState.current && hostState.current.phase === 'rival-bet' && hostState.current.round === game.round) {
+        hostState.current = next;
+        void set(ref(db, `${base}/game`), stripDeck(next));
+        void remove(ref(db, `${base}/live/timerEnd`));
+        if (timerHandle.current) {
+          clearTimeout(timerHandle.current);
+          timerHandle.current = null;
+        }
+      }
+    }
+  }, [players, lobbyId, uid, isHost, game, assign]);
 
   return {
     ready: firebaseReady,

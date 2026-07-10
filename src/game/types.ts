@@ -2,7 +2,7 @@ import type { Card, CategoryId } from '../data/cards';
 
 export type Mode = 'ffa' | 'teams';
 
-export type BetSide = 'left' | 'right';
+export type BetSide = 'left' | 'right' | 'exact' | 'miss';
 
 export type EndRule =
   | { kind: 'laps'; laps: number }
@@ -80,6 +80,7 @@ export type GameState = {
   target: number;
   needle: number;
   bet: BetSide | null;
+  bets: Record<string, BetSide> | null;
   betWon: boolean;
   lastPts: number;
   lastGains: Gain[];
