@@ -61,6 +61,19 @@ export default function OnlineGame({
 }: Props) {
   const role = roleFor(s, assign, uid);
   const hasVoted = s.mode === 'ffa' && s.bets && role.playerId !== null && s.bets[role.playerId.toString()] !== undefined;
+  const isFfaBystander = s.mode === 'ffa' && role.playerId !== null && ffaBystanders(s).some((p) => p.id === role.playerId);
+  const bystanderVote = isFfaBystander ? s.bets?.[role.playerId!.toString()] : null;
+  const bystanderWon = isFfaBystander && bystanderVote
+    ? (bystanderVote === 'miss'
+        ? s.lastPts === 0
+        : bystanderVote === 'exact'
+          ? s.lastPts === 4
+          : (s.lastPts > 0 && s.lastPts !== 4 && (bystanderVote === 'left' ? circularDelta(s.target, s.needle) < 0 : circularDelta(s.target, s.needle) > 0))
+      )
+    : false;
+
+  const showPersonalGain = isFfaBystander && bystanderVote;
+  const showTeamGain = s.mode === 'teams' && role.isRival && s.bet !== null;
   const [localNeedle, setLocalNeedle] = useState(90);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const lastSent = useRef(0);
@@ -92,7 +105,7 @@ export default function OnlineGame({
 
   // cuenta atrás desde live.timerEnd
   useEffect(() => {
-    if (s.phase !== 'guess' || !live.timerEnd) {
+    if (!['guess', 'rival-bet', 'reveal'].includes(s.phase) || !live.timerEnd) {
       setTimeLeft(null);
       return;
     }
@@ -261,6 +274,16 @@ export default function OnlineGame({
           <p className={`reveal-points ${s.lastPts === 0 ? 'reveal-points--miss' : ''}`}>
             {REVEAL_TEXT[s.lastPts]} <b>+{s.lastPts}</b>
           </p>
+          {showPersonalGain && (
+            <p className={`bystander-personal-gain ${!bystanderWon ? 'bystander-personal-gain--fail' : ''}`}>
+              Tu apuesta: <b>{bystanderWon ? '+1' : '+0'}</b> {bystanderWon ? '🎉' : '😢'}
+            </p>
+          )}
+          {showTeamGain && (
+            <p className={`bystander-personal-gain ${!s.betWon ? 'bystander-personal-gain--fail' : ''}`}>
+              Apuesta de tu equipo: <b>{s.betWon ? '+1' : '+0'}</b> {s.betWon ? '🎉' : '😢'}
+            </p>
+          )}
           <p className="panel__text">
             {s.mode === 'ffa' ? (
               <>

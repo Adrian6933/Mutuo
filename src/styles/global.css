@@ -1370,3 +1370,19 @@ body {
   color: var(--green);
   font-weight: 800;
 }
+
+.bystander-personal-gain {
+  margin: 8px 0 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--teal-900);
+}
+
+.bystander-personal-gain b {
+  font-size: 1.35rem;
+  color: var(--green);
+}
+
+.bystander-personal-gain--fail b {
+  color: var(--red);
+}
