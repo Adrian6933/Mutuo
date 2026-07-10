@@ -243,7 +243,10 @@ export default function OnlineGame({
         (role.isRival ? (
           <RivalBet rivalName="Vuestra apuesta" onBet={(side) => sendAction({ type: 'PLACE_BET', side })} />
         ) : (
-          <Waiting kicker="Apuesta rival" text={`${rivalTeam(s).name} está apostando…`} />
+          <Waiting
+            kicker={s.mode === 'ffa' ? 'Apuesta de los demás' : 'Apuesta rival'}
+            text={s.mode === 'ffa' ? 'El resto de jugadores está apostando…' : `${rivalTeam(s).name} está apostando…`}
+          />
         ))}
 
       {s.phase === 'reveal' && (
