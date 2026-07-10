@@ -9,11 +9,10 @@ type Props = {
   onCreate: (opts: { lobbyName: string; playerName: string; isPublic: boolean; mode: Mode }) => void;
   onJoin: (id: string, key: string, playerName: string) => void;
   listPublic: () => Promise<PublicLobby[]>;
-  rejoin: { id: string; key: string | null } | null;
   onExit: () => void;
 };
 
-export default function OnlineHome({ error, onCreate, onJoin, listPublic, rejoin, onExit }: Props) {
+export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit }: Props) {
   const [nick, setNick] = useState('');
   const [tab, setTab] = useState<'join' | 'create'>('join');
   const [lobbyName, setLobbyName] = useState('');
@@ -59,11 +58,7 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, rejoin
         aria-label="Tu nombre"
       />
 
-      {rejoin && (
-        <button className="btn btn--ghost btn--small" onClick={() => onJoin(rejoin.id, rejoin.key ?? '', name)}>
-          ↩ Volver a la partida {rejoin.id}
-        </button>
-      )}
+
 
       <div className="seg">
         <button

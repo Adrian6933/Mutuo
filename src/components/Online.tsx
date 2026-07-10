@@ -68,7 +68,6 @@ export default function Online({ onExit }: { onExit: () => void }) {
             onCreate={(opts) => void lobby.createLobby(opts)}
             onJoin={(id, key, name) => void lobby.joinLobby(id, key, name)}
             listPublic={lobby.listPublic}
-            rejoin={lobby.rejoinInfo()}
             onExit={onExit}
           />
         )}

@@ -72,7 +72,6 @@ export type Role = {
   isMember: boolean;
 };
 
-const REJOIN_KEY = 'frecuencia-online-v1';
 const NICK_KEY = 'frecuencia-nick';
 
 /* ---- utilidades ---- */
@@ -290,7 +289,6 @@ export function useLobby() {
     }
     if (wasMember.current) {
       wasMember.current = false;
-      localStorage.removeItem(REJOIN_KEY);
       setLobbyId(null);
       setMeta(null);
       setGame(null);
@@ -445,7 +443,6 @@ export function useLobby() {
           config: defaultNetConfig(opts.mode),
           players: { [me]: { name: opts.playerName, online: true, joinedAt: Date.now() } },
         });
-        localStorage.setItem(REJOIN_KEY, JSON.stringify({ id, key: meta.key }));
         setError(null);
         setLobbyId(id);
       },
@@ -476,7 +473,6 @@ export function useLobby() {
             joinedAt: Date.now(),
           });
         }
-        localStorage.setItem(REJOIN_KEY, JSON.stringify({ id: clean, key: m.key }));
         setError(null);
         setLobbyId(clean);
       },
@@ -484,7 +480,6 @@ export function useLobby() {
       leave() {
         const me = uid;
         const id = lobbyId;
-        localStorage.removeItem(REJOIN_KEY);
         setLobbyId(null);
         setMeta(null);
         setGame(null);
@@ -648,15 +643,6 @@ export function useLobby() {
           actions: null,
           live: null,
         });
-      },
-
-      rejoinInfo(): { id: string; key: string | null } | null {
-        try {
-          const raw = localStorage.getItem(REJOIN_KEY);
-          return raw ? (JSON.parse(raw) as { id: string; key: string | null }) : null;
-        } catch {
-          return null;
-        }
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

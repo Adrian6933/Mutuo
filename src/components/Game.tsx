@@ -24,7 +24,7 @@ import {
   leaders,
   COLOR_COUNT,
 } from '../game/reducer';
-import { loadState, saveState, clearState, loadPrefs, savePrefs, prefsFromState } from '../game/storage';
+import { loadPrefs, savePrefs, prefsFromState } from '../game/storage';
 import { setSoundEnabled, sfx } from '../game/sound';
 import type { GameState } from '../game/types';
 
@@ -32,25 +32,11 @@ import { REVEAL_TEXT, buildRows, winnerText, Stats } from './gameShared';
 
 export default function Game() {
   const [s, dispatch] = useReducer(reducer, initialState);
-  const [saved, setSaved] = useState<GameState | null>(null);
   const [online, setOnline] = useState(false);
   const [homeConfirm, setHomeConfirm] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const prevPhase = useRef(s.phase);
   const lastTick = useRef(90);
-
-  useEffect(() => {
-    if (s.phase === 'menu') setSaved(loadState());
-  }, [s.phase]);
-
-  useEffect(() => {
-    if (s.phase === 'menu') return;
-    if (s.phase === 'end') {
-      clearState();
-      return;
-    }
-    saveState(s);
-  }, [s]);
 
   // guarda preferencias al arrancar partida desde el setup
   useEffect(() => {
@@ -201,14 +187,6 @@ export default function Game() {
           <Menu
             onMode={(mode) => dispatch({ type: 'CHOOSE_MODE', mode, prefs: loadPrefs(mode) })}
             onOnline={() => setOnline(true)}
-            onContinue={
-              saved
-                ? () => {
-                    dispatch({ type: 'RESTORE', state: saved });
-                    setSaved(null);
-                  }
-                : undefined
-            }
           />
         )}
 
