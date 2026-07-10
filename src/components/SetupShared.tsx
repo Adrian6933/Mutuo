@@ -201,7 +201,7 @@ export function ToggleRow({ label, hint, checked, onChange }: ToggleProps) {
   );
 }
 
-const TIMER_OPTIONS: Options['timerSecs'][] = [0, 30, 60, 90];
+const TIMER_OPTIONS: Options['timerSecs'][] = [0, 15, 20, 30];
 
 type ExtrasProps = {
   mode: Mode;
@@ -239,6 +239,24 @@ export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
               {t === 0 ? 'Off' : `${t}s`}
             </button>
           ))}
+          <div className="custom-timer-input-wrap">
+            <input
+              type="number"
+              className="input custom-timer-input"
+              value={!TIMER_OPTIONS.includes(options.timerSecs) ? options.timerSecs : ''}
+              placeholder="Pers."
+              min={1}
+              max={50}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val)) {
+                  onChange({ timerSecs: Math.max(1, Math.min(50, val)) });
+                } else {
+                  onChange({ timerSecs: 0 });
+                }
+              }}
+            />
+          </div>
         </span>
       </div>
       <ToggleRow

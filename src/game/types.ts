@@ -10,7 +10,7 @@ export type EndRule =
 
 export type Options = {
   rivalBet: boolean;
-  timerSecs: 0 | 30 | 60 | 90;
+  timerSecs: number;
   tiebreak: boolean;
   stats: boolean;
   sound: boolean;

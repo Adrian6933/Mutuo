@@ -1386,3 +1386,29 @@ body {
 .bystander-personal-gain--fail b {
   color: var(--red);
 }
+
+.custom-timer-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.custom-timer-input {
+  width: 60px !important;
+  height: 28px !important;
+  padding: 0 6px !important;
+  border-radius: 8px !important;
+  font-size: 0.8rem !important;
+  text-align: center !important;
+  border: 2px solid var(--ink) !important;
+  background: var(--paper) !important;
+  box-sizing: border-box !important;
+  box-shadow: 2px 2px 0 var(--shadow) !important;
+  font-weight: 700 !important;
+}
+
+.custom-timer-input:focus {
+  outline: none !important;
+  background: var(--sand-100) !important;
+  border-color: var(--teal-900) !important;
+}
