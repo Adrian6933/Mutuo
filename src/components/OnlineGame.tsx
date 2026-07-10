@@ -78,6 +78,15 @@ export default function OnlineGame({
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const lastSent = useRef(0);
   const lastTick = useRef(90);
+  const pendingWrite = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pendingWrite.current) {
+        clearTimeout(pendingWrite.current);
+      }
+    };
+  }, []);
 
   const controlling = s.phase === 'guess' && role.isGuesser;
 
@@ -121,11 +130,22 @@ export default function OnlineGame({
       lastTick.current = angle;
       sfx.tick();
     }
+
+    if (pendingWrite.current) {
+      clearTimeout(pendingWrite.current);
+    }
+
     const now = Date.now();
-    if (now - lastSent.current > 100) {
+    if (now - lastSent.current > 120) {
       lastSent.current = now;
       setLiveNeedle(angle);
     }
+
+    pendingWrite.current = setTimeout(() => {
+      setLiveNeedle(angle);
+      lastSent.current = Date.now();
+      pendingWrite.current = null;
+    }, 150);
   };
 
   const psy = psychicName(s);
