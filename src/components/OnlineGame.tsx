@@ -105,7 +105,7 @@ export default function OnlineGame({
 
   // cuenta atrás desde live.timerEnd
   useEffect(() => {
-    if (!['guess', 'rival-bet', 'reveal'].includes(s.phase) || !live.timerEnd) {
+    if (!['clue', 'guess', 'rival-bet', 'reveal'].includes(s.phase) || !live.timerEnd) {
       setTimeLeft(null);
       return;
     }
@@ -244,7 +244,7 @@ export default function OnlineGame({
             ) : (
               <p className="panel__text">Arrastra la aguja hasta donde creas que apunta la pista.</p>
             )}
-            <button className="btn btn--primary" onClick={() => sendAction({ type: 'CONFIRM_GUESS' })}>
+            <button className="btn btn--primary" onClick={() => sendAction({ type: 'CONFIRM_GUESS', angle: localNeedle })}>
               Confirmar posición
             </button>
           </section>

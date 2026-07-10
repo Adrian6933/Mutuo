@@ -42,7 +42,7 @@ export type Action =
   | { type: 'HIDE_ZONE' }
   | { type: 'CLUE_GIVEN'; text?: string }
   | { type: 'SET_NEEDLE'; angle: number }
-  | { type: 'CONFIRM_GUESS' }
+  | { type: 'CONFIRM_GUESS'; angle?: number }
   | { type: 'PLACE_BET'; side: BetSide; playerId?: number }
   | { type: 'REVEAL_FFA' }
   | { type: 'SHOW_STANDINGS' }

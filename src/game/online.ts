@@ -210,6 +210,7 @@ export function useLobby() {
   const hostState = useRef<GameState | null>(null);
   const liveRef = useRef<Live>({});
   const timerHandle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTimerPhase = useRef<string | null>(null);
   const metaRef = useRef<LobbyMeta | null>(null);
   const assignRef = useRef<Record<string, number> | null>(null);
   const configRef = useRef<NetConfig | null>(null);
@@ -340,8 +341,11 @@ export function useLobby() {
       if (!st || !m || !asg) return;
       if (!actionAllowed(st, asg, m, action, senderUid)) return;
       let next = st;
-      if (action.type === 'CONFIRM_GUESS' && liveRef.current.needle !== undefined) {
-        next = reducer(next, { type: 'SET_NEEDLE', angle: liveRef.current.needle });
+      if (action.type === 'CONFIRM_GUESS') {
+        const finalAngle = action.angle !== undefined ? action.angle : liveRef.current.needle;
+        if (finalAngle !== undefined) {
+          next = reducer(next, { type: 'SET_NEEDLE', angle: finalAngle });
+        }
       }
       let finalAction = action;
       if (action.type === 'PLACE_BET') {
@@ -357,6 +361,13 @@ export function useLobby() {
     const afterApply = (st: GameState) => {
       // sin handoff online: cada uno ve su pantalla
       if (st.phase === 'handoff') {
+        if (timerHandle.current) {
+          clearTimeout(timerHandle.current);
+          timerHandle.current = null;
+        }
+        void remove(ref(db, `${base}/live/timerEnd`));
+        lastTimerPhase.current = null;
+
         setTimeout(() => {
           const cur = hostState.current;
           if (cur && cur.phase === 'handoff') {
@@ -367,14 +378,33 @@ export function useLobby() {
         }, 400);
         return;
       }
-      // temporizador
+
+      // Si la fase no ha cambiado, no volvemos a iniciar el temporizador
+      if (lastTimerPhase.current === st.phase) {
+        return;
+      }
+
+      // Al cambiar de fase, limpiamos el temporizador anterior
       if (timerHandle.current) {
         clearTimeout(timerHandle.current);
         timerHandle.current = null;
       }
-      if (st.phase === 'guess' && st.options.timerSecs > 0) {
+
+      if (st.phase === 'clue') {
+        const end = Date.now() + 10000;
+        void set(ref(db, `${base}/live/timerEnd`), end);
+        lastTimerPhase.current = st.phase;
+        const round = st.round;
+        timerHandle.current = setTimeout(() => {
+          const cur = hostState.current;
+          if (cur && cur.phase === 'clue' && cur.round === round) {
+            applyAction({ type: 'CLUE_GIVEN', text: '' }, uid);
+          }
+        }, 10300);
+      } else if (st.phase === 'guess' && st.options.timerSecs > 0) {
         const end = Date.now() + st.options.timerSecs * 1000;
         void set(ref(db, `${base}/live/timerEnd`), end);
+        lastTimerPhase.current = st.phase;
         const round = st.round;
         timerHandle.current = setTimeout(() => {
           const cur = hostState.current;
@@ -385,6 +415,7 @@ export function useLobby() {
       } else if (st.phase === 'rival-bet') {
         const end = Date.now() + 10000;
         void set(ref(db, `${base}/live/timerEnd`), end);
+        lastTimerPhase.current = st.phase;
         const round = st.round;
         timerHandle.current = setTimeout(() => {
           const cur = hostState.current;
@@ -394,6 +425,7 @@ export function useLobby() {
               hostState.current = next;
               void set(ref(db, `${base}/game`), stripDeck(next));
               void remove(ref(db, `${base}/live/timerEnd`));
+              lastTimerPhase.current = null;
             } else {
               applyAction({ type: 'PLACE_BET', side: null as any }, uid);
             }
@@ -402,6 +434,7 @@ export function useLobby() {
       } else if (st.phase === 'reveal') {
         const end = Date.now() + 5000;
         void set(ref(db, `${base}/live/timerEnd`), end);
+        lastTimerPhase.current = st.phase;
         const round = st.round;
         timerHandle.current = setTimeout(() => {
           const cur = hostState.current;
@@ -411,6 +444,7 @@ export function useLobby() {
         }, 5300);
       } else {
         void remove(ref(db, `${base}/live/timerEnd`));
+        lastTimerPhase.current = null;
       }
     };
 
@@ -684,6 +718,7 @@ export function useLobby() {
         hostState.current = next;
         void set(ref(db, `${base}/game`), stripDeck(next));
         void remove(ref(db, `${base}/live/timerEnd`));
+        lastTimerPhase.current = null;
         if (timerHandle.current) {
           clearTimeout(timerHandle.current);
           timerHandle.current = null;
