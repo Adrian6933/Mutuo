@@ -1,0 +1,36 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "lobbies": {
+      ".indexOn": ["meta/public"],
+      ".read": "auth != null",
+      "$lobbyId": {
+        "meta": {
+          ".write": "auth != null && (!data.exists() || data.child('hostUid').val() === auth.uid || newData.child('hostUid').val() === auth.uid)"
+        },
+        "config": {
+          ".write": "auth != null && root.child('lobbies').child($lobbyId).child('meta/hostUid').val() === auth.uid"
+        },
+        "game": {
+          ".write": "auth != null && root.child('lobbies').child($lobbyId).child('meta/hostUid').val() === auth.uid"
+        },
+        "assign": {
+          ".write": "auth != null && root.child('lobbies').child($lobbyId).child('meta/hostUid').val() === auth.uid"
+        },
+        "players": {
+          "$uid": {
+            ".write": "auth != null && ($uid === auth.uid || root.child('lobbies').child($lobbyId).child('meta/hostUid').val() === auth.uid)"
+          }
+        },
+        "actions": {
+          ".write": "auth != null && root.child('lobbies').child($lobbyId).child('players').child(auth.uid).exists() || root.child('lobbies').child($lobbyId).child('meta/hostUid').val() === auth.uid"
+        },
+        "live": {
+          ".write": "auth != null && root.child('lobbies').child($lobbyId).child('players').child(auth.uid).exists()"
+        },
+        ".write": "auth != null && (!data.exists() || root.child('lobbies').child($lobbyId).child('meta/hostUid').val() === auth.uid)"
+      }
+    }
+  }
+}

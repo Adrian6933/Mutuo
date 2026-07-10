@@ -1,0 +1,391 @@
+import { useEffect, useReducer, useRef, useState } from 'react';
+import Dial from './Dial';
+import Menu from './Menu';
+import Online from './Online';
+import SetupFfa from './SetupFfa';
+import SetupTeams from './SetupTeams';
+import { CardPicker, CustomCardForm, ClueForm } from './CardPicker';
+import RivalBet from './RivalBet';
+import ScoreTable from './ScoreTable';
+import Confetti from './Confetti';
+import {
+  reducer,
+  initialState,
+  psychicName,
+  guesserNames,
+  activeTeam,
+  activeTeamIdx,
+  rivalTeam,
+  ffaBystanderNames,
+  totalRounds,
+  isGameOver,
+  leaders,
+  COLOR_COUNT,
+} from '../game/reducer';
+import { loadState, saveState, clearState, loadPrefs, savePrefs, prefsFromState } from '../game/storage';
+import { setSoundEnabled, sfx } from '../game/sound';
+import type { GameState } from '../game/types';
+
+import { REVEAL_TEXT, buildRows, winnerText, Stats } from './gameShared';
+
+export default function Game() {
+  const [s, dispatch] = useReducer(reducer, initialState);
+  const [saved, setSaved] = useState<GameState | null>(null);
+  const [online, setOnline] = useState(false);
+  const [homeConfirm, setHomeConfirm] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const prevPhase = useRef(s.phase);
+  const lastTick = useRef(90);
+
+  useEffect(() => {
+    if (s.phase === 'menu') setSaved(loadState());
+  }, [s.phase]);
+
+  useEffect(() => {
+    if (s.phase === 'menu') return;
+    if (s.phase === 'end') {
+      clearState();
+      return;
+    }
+    saveState(s);
+  }, [s]);
+
+  // guarda preferencias al arrancar partida desde el setup
+  useEffect(() => {
+    if (prevPhase.current === 'setup' && s.phase === 'handoff') {
+      savePrefs(s.mode, prefsFromState(s));
+    }
+    if (prevPhase.current !== s.phase) setHomeConfirm(false);
+    prevPhase.current = s.phase;
+  }, [s]);
+
+  useEffect(() => {
+    setSoundEnabled(s.options.sound);
+  }, [s.options.sound]);
+
+  // sonidos de reveal
+  useEffect(() => {
+    if (s.phase !== 'reveal') return;
+    if (s.lastPts === 4) sfx.tada();
+    else if (s.lastPts > 0) sfx.reveal();
+    else sfx.fail();
+  }, [s.phase, s.lastPts]);
+
+  // temporizador de adivinar
+  useEffect(() => {
+    if (s.phase !== 'guess' || s.options.timerSecs === 0) {
+      setTimeLeft(null);
+      return;
+    }
+    setTimeLeft(s.options.timerSecs);
+    const id = setInterval(() => setTimeLeft((t) => (t === null ? null : t - 1)), 1000);
+    return () => clearInterval(id);
+  }, [s.phase, s.options.timerSecs]);
+
+  useEffect(() => {
+    if (timeLeft === 0 && s.phase === 'guess') dispatch({ type: 'CONFIRM_GUESS' });
+  }, [timeLeft, s.phase]);
+
+  const onNeedle = (angle: number) => {
+    if (Math.abs(angle - lastTick.current) >= 4) {
+      lastTick.current = angle;
+      sfx.tick();
+    }
+    dispatch({ type: 'SET_NEEDLE', angle });
+  };
+
+  const goHome = () => {
+    if (s.phase === 'menu') return;
+    if (s.phase === 'setup' || s.phase === 'end') {
+      dispatch({ type: 'GO_HOME' });
+      return;
+    }
+    setHomeConfirm(true);
+  };
+
+  if (online) return <Online onExit={() => setOnline(false)} />;
+
+  const inRound = !['menu', 'setup', 'standings', 'end'].includes(s.phase);
+  const dialVisible = s.phase === 'menu' || inRound;
+  const dialOpen = s.phase === 'psychic' || s.phase === 'reveal';
+  const showCardStrip = ['psychic', 'clue', 'guess', 'rival-bet', 'reveal'].includes(s.phase);
+  const rows = ['standings', 'end'].includes(s.phase) ? buildRows(s) : [];
+  const total = s.tiebreakKeys ? null : inRound || s.phase === 'standings' ? totalRounds(s) : null;
+
+  return (
+    <div className="game">
+      <header className="game__header">
+        <button className="logo logo--btn" onClick={goHome} aria-label="Volver al inicio">
+          MUTUO
+        </button>
+        {(inRound || s.phase === 'standings') && (
+          <div className="scoreboard">
+            <span className="round-pill">
+              {s.tiebreakKeys
+                ? '⚡ Muerte súbita'
+                : `Ronda ${s.round + 1}${total ? `/${total}` : ''}${
+                    s.endRule.kind === 'points' ? ` · meta ${s.endRule.goal}` : ''
+                  }`}
+            </span>
+            {timeLeft !== null && (
+              <span className={`round-pill timer-pill ${timeLeft <= 10 ? 'timer-pill--low' : ''}`}>
+                ⏱ {timeLeft}s
+              </span>
+            )}
+            {s.mode === 'teams' &&
+              s.teams.length <= 3 &&
+              s.teams.map((t, i) => (
+                <span
+                  key={t.id}
+                  className={`score-chip c${i % COLOR_COUNT} ${
+                    inRound && i === activeTeamIdx(s) ? 'score-chip--active' : ''
+                  }`}
+                >
+                  {t.name} <b>{t.score}</b>
+                </span>
+              ))}
+          </div>
+        )}
+      </header>
+
+      {homeConfirm && (
+        <div className="home-confirm">
+          <span>¿Volver al inicio? La partida queda guardada.</span>
+          <div className="home-confirm__actions">
+            <button
+              className="btn btn--ghost btn--small"
+              onClick={() => {
+                setHomeConfirm(false);
+                dispatch({ type: 'GO_HOME' });
+              }}
+            >
+              Salir
+            </button>
+            <button className="btn btn--primary btn--small" onClick={() => setHomeConfirm(false)}>
+              Seguir jugando
+            </button>
+          </div>
+        </div>
+      )}
+
+      <main className="game__table">
+        {showCardStrip && s.card ? (
+          <div className="spectrum-card">
+            {s.card.topic && <p className="spectrum-card__topic">{s.card.topic}</p>}
+            <div className="spectrum-card__row">
+              <span className="spectrum-card__end spectrum-card__end--left">◀ {s.card.left}</span>
+              <span className="spectrum-card__vs">···</span>
+              <span className="spectrum-card__end spectrum-card__end--right">{s.card.right} ▶</span>
+            </div>
+          </div>
+        ) : (
+          dialVisible && <div className="spectrum-card spectrum-card--empty" aria-hidden="true" />
+        )}
+
+        {dialVisible && (
+          <div className="dial-wrap">
+            <Dial
+              angle={s.needle}
+              target={inRound && s.card ? s.target : null}
+              open={dialOpen}
+              interactive={s.phase === 'guess'}
+              onChange={onNeedle}
+            />
+            {s.phase === 'reveal' && s.lastPts === 4 && <Confetti />}
+          </div>
+        )}
+
+        {s.phase === 'menu' && (
+          <Menu
+            onMode={(mode) => dispatch({ type: 'CHOOSE_MODE', mode, prefs: loadPrefs(mode) })}
+            onOnline={() => setOnline(true)}
+            onContinue={
+              saved
+                ? () => {
+                    dispatch({ type: 'RESTORE', state: saved });
+                    setSaved(null);
+                  }
+                : undefined
+            }
+          />
+        )}
+
+        {s.phase === 'setup' &&
+          (s.mode === 'ffa' ? (
+            <SetupFfa s={s} dispatch={dispatch} />
+          ) : (
+            <SetupTeams s={s} dispatch={dispatch} />
+          ))}
+
+        {s.phase === 'handoff' && (
+          <section className="panel">
+            <p className="panel__kicker">
+              {s.tiebreakKeys ? '⚡ Muerte súbita' : `Ronda ${s.round + 1}`}
+              {s.mode === 'teams' ? ` · ${activeTeam(s).name}` : ''}
+            </p>
+            <h2 className="panel__title">{psychicName(s)}, te toca de psíquico</h2>
+            <p className="panel__text">Pasadle el móvil. Que nadie más mire la pantalla.</p>
+            <button className="btn btn--primary" onClick={() => dispatch({ type: 'BEGIN_TURN' })}>
+              Soy {psychicName(s)}
+            </button>
+          </section>
+        )}
+
+        {s.phase === 'card-pick' && (
+          <CardPicker
+            psychic={psychicName(s)}
+            onRandom={() => dispatch({ type: 'PICK_RANDOM' })}
+            onCustom={() => dispatch({ type: 'PICK_CUSTOM' })}
+          />
+        )}
+
+        {s.phase === 'custom-card' && (
+          <CustomCardForm
+            onSubmit={(left, right, topic) => dispatch({ type: 'SET_CUSTOM_CARD', left, right, topic })}
+            onBack={() => dispatch({ type: 'BEGIN_TURN' })}
+          />
+        )}
+
+        {s.phase === 'psychic' && (
+          <section className="panel">
+            <p className="panel__kicker">Solo para tus ojos</p>
+            <p className="panel__text">
+              Memoriza dónde está la zona. Piensa una pista que encaje justo en ese punto entre{' '}
+              <b>{s.card?.left}</b> y <b>{s.card?.right}</b>.
+            </p>
+            <button className="btn btn--primary" onClick={() => dispatch({ type: 'HIDE_ZONE' })}>
+              Ocultar zona
+            </button>
+          </section>
+        )}
+
+        {s.phase === 'clue' && (
+          <ClueForm
+            kicker={`Psíquico: ${psychicName(s)}`}
+            guesser={guesserNames(s)}
+            onSubmit={(text) => dispatch({ type: 'CLUE_GIVEN', text })}
+          />
+        )}
+
+        {s.phase === 'guess' && (
+          <section className="panel">
+            <p className="panel__kicker">{guesserNames(s)}</p>
+            {s.clue ? (
+              <p className="panel__text">
+                Pista: <b>«{s.clue}»</b>
+              </p>
+            ) : (
+              <p className="panel__text">Arrastrad la aguja hasta donde creáis que apunta la pista.</p>
+            )}
+            <button className="btn btn--primary" onClick={() => dispatch({ type: 'CONFIRM_GUESS' })}>
+              Confirmar posición
+            </button>
+          </section>
+        )}
+
+        {s.phase === 'rival-bet' && (
+          <RivalBet
+            rivalName={s.mode === 'ffa' ? ffaBystanderNames(s) : rivalTeam(s).name}
+            onBet={(side) => dispatch({ type: 'PLACE_BET', side })}
+          />
+        )}
+
+        {s.phase === 'reveal' && (
+          <section className="panel">
+            <p className={`reveal-points ${s.lastPts === 0 ? 'reveal-points--miss' : ''}`}>
+              {REVEAL_TEXT[s.lastPts]} <b>+{s.lastPts}</b>
+            </p>
+            <p className="panel__text">
+              {s.mode === 'ffa' ? (
+                <>
+                  {s.lastPts > 0
+                    ? s.tiebreakKeys
+                      ? `Para ${guesserNames(s)} (en muerte súbita solo puntúa quien adivina).`
+                      : `Para ${psychicName(s)} y ${guesserNames(s)}.`
+                    : s.bet === null
+                      ? 'Nadie puntúa esta ronda.'
+                      : ''}
+                  {s.bet !== null && (
+                    <>
+                      {' '}
+                      Apuesta de {ffaBystanderNames(s)}:{' '}
+                      {s.bet === 'left' ? '◀ izquierda' : 'derecha ▶'} —{' '}
+                      {s.betWon ? (
+                        <b>acierta, +1</b>
+                      ) : s.lastPts === 4 ? (
+                        'el 4 la anula'
+                      ) : (
+                        'falla'
+                      )}
+                      .
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  {s.lastPts > 0
+                    ? `Para ${activeTeam(s).name}. `
+                    : s.bet === null
+                      ? 'Nadie puntúa esta ronda.'
+                      : ''}
+                  {s.bet !== null && (
+                    <>
+                      {rivalTeam(s).name} apostó {s.bet === 'left' ? '◀ izquierda' : 'derecha ▶'}:{' '}
+                      {s.betWon ? (
+                        <b>acierta, +1</b>
+                      ) : s.lastPts === 4 ? (
+                        'el 4 anula la apuesta'
+                      ) : (
+                        'falla'
+                      )}
+                      .
+                    </>
+                  )}
+                </>
+              )}
+            </p>
+            <button className="btn btn--primary" onClick={() => dispatch({ type: 'SHOW_STANDINGS' })}>
+              Ver clasificación
+            </button>
+          </section>
+        )}
+
+        {s.phase === 'standings' && (
+          <section className="panel panel--setup">
+            <p className="panel__kicker">
+              {s.tiebreakKeys ? '⚡ Muerte súbita' : `Ronda ${s.round + 1}`}
+            </p>
+            <h2 className="panel__title">Clasificación</h2>
+            <ScoreTable rows={rows} />
+            <button className="btn btn--primary" onClick={() => dispatch({ type: 'NEXT_ROUND' })}>
+              {s.tiebreakKeys
+                ? 'Continuar'
+                : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak)
+                  ? 'Resultado final'
+                  : isGameOver(s)
+                    ? '⚡ ¡Desempate!'
+                    : 'Siguiente ronda'}
+            </button>
+          </section>
+        )}
+
+        {s.phase === 'end' && (
+          <section className="panel panel--setup">
+            <p className="panel__kicker">Fin de la partida</p>
+            <h2 className="panel__title">{winnerText(rows)}</h2>
+            <ScoreTable rows={rows} final />
+            {s.options.stats && <Stats s={s} />}
+            <div className="btn-row">
+              <button className="btn btn--primary" onClick={() => dispatch({ type: 'PLAY_AGAIN' })}>
+                Jugar otra vez
+              </button>
+              <button className="btn btn--ghost" onClick={() => dispatch({ type: 'BACK_TO_MENU' })}>
+                Menú
+              </button>
+            </div>
+          </section>
+        )}
+      </main>
+    </div>
+  );
+}
