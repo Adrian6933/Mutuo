@@ -383,7 +383,7 @@ export function useLobby() {
           }
         }, st.options.timerSecs * 1000 + 300);
       } else if (st.phase === 'rival-bet') {
-        const end = Date.now() + 5000;
+        const end = Date.now() + 10000;
         void set(ref(db, `${base}/live/timerEnd`), end);
         const round = st.round;
         timerHandle.current = setTimeout(() => {
@@ -397,6 +397,16 @@ export function useLobby() {
             } else {
               applyAction({ type: 'PLACE_BET', side: null as any }, uid);
             }
+          }
+        }, 10300);
+      } else if (st.phase === 'reveal') {
+        const end = Date.now() + 5000;
+        void set(ref(db, `${base}/live/timerEnd`), end);
+        const round = st.round;
+        timerHandle.current = setTimeout(() => {
+          const cur = hostState.current;
+          if (cur && cur.phase === 'reveal' && cur.round === round) {
+            applyAction({ type: 'SHOW_STANDINGS' }, uid);
           }
         }, 5300);
       } else {
