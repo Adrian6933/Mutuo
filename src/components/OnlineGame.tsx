@@ -306,52 +306,50 @@ export default function OnlineGame({
           )}
           <p className="panel__text">
             {s.mode === 'ffa' ? (
-              <>
-                {s.lastPts > 0
-                  ? s.tiebreakKeys
-                    ? `Para ${guesserNames(s)} (en muerte súbita solo puntúa quien adivina).`
-                    : `Para ${psy} y ${guesserNames(s)}.`
-                  : 'Nadie puntúa por la aguja.'}
-                {s.bets && Object.keys(s.bets).length > 0 && (
-                  <div className="bystander-bets-summary">
-                    <p className="bystander-bets-summary__title">Apuestas de los demás:</p>
-                    <ul className="bystander-bets-summary__list">
-                      {ffaBystanders(s).map((p) => {
-                        const vote = s.bets?.[p.id.toString()];
-                        if (!vote) return null;
-                        const voteLabel =
-                          vote === 'left' ? '◀ Izquierda' :
-                          vote === 'right' ? 'Derecha ▶' :
-                          vote === 'exact' ? '🎯 4 Exacto' :
-                          vote === 'miss' ? '❌ No ha adivinado' : 'Ninguno';
-                        const delta = circularDelta(s.target, s.needle);
-                        const won = vote === 'miss'
-                          ? s.lastPts === 0
-                          : vote === 'exact'
-                            ? s.lastPts === 4
-                            : (s.lastPts > 0 && s.lastPts !== 4 && (vote === 'left' ? delta < 0 : delta > 0));
-                        return (
-                          <li key={p.id} className="bystander-bets-summary__item">
-                            <span><b>{p.name}</b>: {voteLabel}</span> {won ? <b className="won-text">acierta (+1)</b> : <span>falla</span>}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                )}
-              </>
+              s.lastPts > 0
+                ? s.tiebreakKeys
+                  ? `Para ${guesserNames(s)} (en muerte súbita solo puntúa quien adivina).`
+                  : `Para ${psy} y ${guesserNames(s)}.`
+                : 'Nadie puntúa por la aguja.'
             ) : (
               <>
                 {s.lastPts > 0 ? `Para ${activeTeam(s).name}. ` : s.bet === null ? 'Nadie puntúa esta ronda.' : ''}
                 {s.bet !== null && (
                   <>
-                    {rivalTeam(s).name} apostó {s.bet === 'left' ? '◀ izquierda' : 'derecha ▶'}:{' '}
-                    {s.betWon ? <b>acierta, +1</b> : s.lastPts === 4 ? 'el 4 anula la apuesta' : 'falla'}.
+                    {rivalTeam(s).name} apostó {s.bet === 'left' ? '◀ izquierda' : s.bet === 'right' ? 'derecha ▶' : s.bet === 'exact' ? '🎯 4 Exacto' : '❌ no ha adivinado'}:{' '}
+                    {s.betWon ? <b>acierta, +1</b> : 'falla'}.
                   </>
                 )}
               </>
             )}
           </p>
+          {s.mode === 'ffa' && s.bets && Object.keys(s.bets).length > 0 && (
+            <div className="bystander-bets-summary">
+              <p className="bystander-bets-summary__title">Apuestas de los demás:</p>
+              <ul className="bystander-bets-summary__list">
+                {ffaBystanders(s).map((p) => {
+                  const vote = s.bets?.[p.id.toString()];
+                  if (!vote) return null;
+                  const voteLabel =
+                    vote === 'left' ? '◀ Izquierda' :
+                    vote === 'right' ? 'Derecha ▶' :
+                    vote === 'exact' ? '🎯 4 Exacto' :
+                    vote === 'miss' ? '❌ No ha adivinado' : 'Ninguno';
+                  const delta = circularDelta(s.target, s.needle);
+                  const won = vote === 'miss'
+                    ? s.lastPts === 0
+                    : vote === 'exact'
+                      ? s.lastPts === 4
+                      : (s.lastPts > 0 && s.lastPts !== 4 && (vote === 'left' ? delta < 0 : delta > 0));
+                  return (
+                    <li key={p.id} className="bystander-bets-summary__item">
+                      <span><b>{p.name}</b>: {voteLabel}</span> {won ? <b className="won-text">acierta (+1)</b> : <span>falla</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
           {isHost ? (
             <button className="btn btn--primary" onClick={() => sendAction({ type: 'SHOW_STANDINGS' })}>
               Ver clasificación

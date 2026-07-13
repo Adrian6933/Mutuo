@@ -184,6 +184,8 @@ function actionAllowed(
       return role.isGuesser || senderUid === meta.hostUid; // host: temporizador
     case 'PLACE_BET':
       return role.isRival;
+    case 'REVEAL_FFA':
+      return senderUid === meta.hostUid; // cierre de apuestas: timeout o todos votados
     case 'SHOW_STANDINGS':
     case 'NEXT_ROUND':
       return senderUid === meta.hostUid;
@@ -391,7 +393,7 @@ export function useLobby() {
       }
 
       if (st.phase === 'clue') {
-        const end = Date.now() + 10000;
+        const end = Date.now() + 25000;
         void set(ref(db, `${base}/live/timerEnd`), end);
         lastTimerPhase.current = st.phase;
         const round = st.round;
@@ -400,7 +402,7 @@ export function useLobby() {
           if (cur && cur.phase === 'clue' && cur.round === round) {
             applyAction({ type: 'CLUE_GIVEN', text: '' }, uid);
           }
-        }, 10300);
+        }, 25300);
       } else if (st.phase === 'guess' && st.options.timerSecs > 0) {
         const end = Date.now() + st.options.timerSecs * 1000;
         void set(ref(db, `${base}/live/timerEnd`), end);
@@ -421,11 +423,8 @@ export function useLobby() {
           const cur = hostState.current;
           if (cur && cur.phase === 'rival-bet' && cur.round === round) {
             if (cur.mode === 'ffa') {
-              const next = reducer(cur, { type: 'REVEAL_FFA' });
-              hostState.current = next;
-              void set(ref(db, `${base}/game`), stripDeck(next));
-              void remove(ref(db, `${base}/live/timerEnd`));
-              lastTimerPhase.current = null;
+              // por applyAction para que afterApply arme el auto-avance del reveal
+              applyAction({ type: 'REVEAL_FFA' }, uid);
             } else {
               applyAction({ type: 'PLACE_BET', side: null as any }, uid);
             }
@@ -713,16 +712,9 @@ export function useLobby() {
     });
 
     if (allVoted || onlineBystanders.length === 0) {
-      const next = reducer(game, { type: 'REVEAL_FFA' });
       if (hostState.current && hostState.current.phase === 'rival-bet' && hostState.current.round === game.round) {
-        hostState.current = next;
-        void set(ref(db, `${base}/game`), stripDeck(next));
-        void remove(ref(db, `${base}/live/timerEnd`));
-        lastTimerPhase.current = null;
-        if (timerHandle.current) {
-          clearTimeout(timerHandle.current);
-          timerHandle.current = null;
-        }
+        // por la cola: applyAction valida, publica y afterApply arma el auto-avance
+        void push(ref(db, `${base}/actions`), { uid, action: { type: 'REVEAL_FFA' } });
       }
     }
   }, [players, lobbyId, uid, isHost, game, assign]);

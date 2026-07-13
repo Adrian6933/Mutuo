@@ -24,7 +24,7 @@ import {
   leaders,
   COLOR_COUNT,
 } from '../game/reducer';
-import { loadPrefs, savePrefs, prefsFromState } from '../game/storage';
+import { loadPrefs, savePrefs, prefsFromState, loadState, saveState, clearState } from '../game/storage';
 import { setSoundEnabled, sfx } from '../game/sound';
 import type { GameState } from '../game/types';
 
@@ -35,16 +35,28 @@ export default function Game() {
   const [online, setOnline] = useState(false);
   const [homeConfirm, setHomeConfirm] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [saved, setSaved] = useState<GameState | null>(null);
   const prevPhase = useRef(s.phase);
   const lastTick = useRef(90);
 
-  // guarda preferencias al arrancar partida desde el setup
+  // partida guardada de una sesión anterior (en efecto: localStorage no existe en SSR)
+  useEffect(() => {
+    setSaved(loadState());
+  }, []);
+
+  // guarda preferencias al arrancar partida desde el setup, y la partida en curso
   useEffect(() => {
     if (prevPhase.current === 'setup' && s.phase === 'handoff') {
       savePrefs(s.mode, prefsFromState(s));
     }
     if (prevPhase.current !== s.phase) setHomeConfirm(false);
+    // al volver al menú, reofrece la partida guardada (p. ej. tras "Salir")
+    if (prevPhase.current !== 'menu' && s.phase === 'menu') setSaved(loadState());
     prevPhase.current = s.phase;
+    if (!['menu', 'setup'].includes(s.phase)) {
+      if (s.phase === 'end') clearState();
+      else saveState(s);
+    }
   }, [s]);
 
   useEffect(() => {
@@ -187,6 +199,15 @@ export default function Game() {
           <Menu
             onMode={(mode) => dispatch({ type: 'CHOOSE_MODE', mode, prefs: loadPrefs(mode) })}
             onOnline={() => setOnline(true)}
+            onContinue={
+              saved
+                ? () => {
+                    // spread sobre initialState: rellena campos añadidos después de guardar (clue, bets…)
+                    dispatch({ type: 'RESTORE', state: { ...initialState, ...saved } });
+                    setSaved(null);
+                  }
+                : undefined
+            }
           />
         )}
 
@@ -277,40 +298,11 @@ export default function Game() {
             </p>
             <p className="panel__text">
               {s.mode === 'ffa' ? (
-                <>
-                  {s.lastPts > 0
-                    ? s.tiebreakKeys
-                      ? `Para ${guesserNames(s)} (en muerte súbita solo puntúa quien adivina).`
-                      : `Para ${psychicName(s)} y ${guesserNames(s)}.`
-                    : 'Nadie puntúa por la aguja.'}
-                  {s.bets && Object.keys(s.bets).length > 0 && (
-                    <div className="bystander-bets-summary">
-                      <p className="bystander-bets-summary__title">Apuestas de los demás:</p>
-                      <ul className="bystander-bets-summary__list">
-                        {ffaBystanders(s).map((p) => {
-                          const vote = s.bets?.[p.id.toString()];
-                          if (!vote) return null;
-                          const voteLabel =
-                            vote === 'left' ? '◀ Izquierda' :
-                            vote === 'right' ? 'Derecha ▶' :
-                            vote === 'exact' ? '🎯 4 Exacto' :
-                            vote === 'miss' ? '❌ No ha adivinado' : 'Ninguno';
-                          const delta = circularDelta(s.target, s.needle);
-                          const won = vote === 'miss'
-                            ? s.lastPts === 0
-                            : vote === 'exact'
-                              ? s.lastPts === 4
-                              : (s.lastPts > 0 && s.lastPts !== 4 && (vote === 'left' ? delta < 0 : delta > 0));
-                          return (
-                            <li key={p.id} className="bystander-bets-summary__item">
-                              <span><b>{p.name}</b>: {voteLabel}</span> {won ? <b className="won-text">acierta (+1)</b> : <span>falla</span>}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
-                </>
+                s.lastPts > 0
+                  ? s.tiebreakKeys
+                    ? `Para ${guesserNames(s)} (en muerte súbita solo puntúa quien adivina).`
+                    : `Para ${psychicName(s)} y ${guesserNames(s)}.`
+                  : 'Nadie puntúa por la aguja.'
               ) : (
                 <>
                   {s.lastPts > 0
@@ -332,6 +324,33 @@ export default function Game() {
                 </>
               )}
             </p>
+            {s.mode === 'ffa' && s.bets && Object.keys(s.bets).length > 0 && (
+              <div className="bystander-bets-summary">
+                <p className="bystander-bets-summary__title">Apuestas de los demás:</p>
+                <ul className="bystander-bets-summary__list">
+                  {ffaBystanders(s).map((p) => {
+                    const vote = s.bets?.[p.id.toString()];
+                    if (!vote) return null;
+                    const voteLabel =
+                      vote === 'left' ? '◀ Izquierda' :
+                      vote === 'right' ? 'Derecha ▶' :
+                      vote === 'exact' ? '🎯 4 Exacto' :
+                      vote === 'miss' ? '❌ No ha adivinado' : 'Ninguno';
+                    const delta = circularDelta(s.target, s.needle);
+                    const won = vote === 'miss'
+                      ? s.lastPts === 0
+                      : vote === 'exact'
+                        ? s.lastPts === 4
+                        : (s.lastPts > 0 && s.lastPts !== 4 && (vote === 'left' ? delta < 0 : delta > 0));
+                    return (
+                      <li key={p.id} className="bystander-bets-summary__item">
+                        <span><b>{p.name}</b>: {voteLabel}</span> {won ? <b className="won-text">acierta (+1)</b> : <span>falla</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
             <button className="btn btn--primary" onClick={() => dispatch({ type: 'SHOW_STANDINGS' })}>
               Ver clasificación
             </button>

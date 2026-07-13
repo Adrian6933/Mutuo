@@ -121,8 +121,10 @@ export function ffaGuesser(s: GameState): Player {
   return elig[(turnIndex(s, elig.length) + 1) % elig.length]!;
 }
 
-/** Jugadores que no son psíquico ni adivinador esta ronda: pueden apostar al lado. */
+/** Jugadores que no son psíquico ni adivinador esta ronda: pueden apostar al lado.
+ *  En muerte súbita nadie apuesta (solo puntúa quien adivina). */
 export function ffaBystanders(s: GameState): Player[] {
+  if (s.tiebreakKeys) return [];
   const psy = ffaPsychic(s).id;
   const gsr = ffaGuesser(s).id;
   return s.players.filter((p) => p.id !== psy && p.id !== gsr);
@@ -551,10 +553,14 @@ export function reducer(s: GameState, a: Action): GameState {
       });
     }
 
+    // Guards de fase: online las acciones llegan por una cola y pueden duplicarse
+    // (doble clic, dos jugadores a la vez); fuera de su fase son no-op.
     case 'BEGIN_TURN':
+      if (s.phase !== 'handoff' && s.phase !== 'custom-card') return s;
       return { ...s, phase: 'card-pick' };
 
     case 'PICK_RANDOM': {
+      if (s.phase !== 'card-pick') return s;
       let deck = s.deck;
       let di = s.deckIndex;
       if (di >= deck.length) {
@@ -565,9 +571,11 @@ export function reducer(s: GameState, a: Action): GameState {
     }
 
     case 'PICK_CUSTOM':
+      if (s.phase !== 'card-pick') return s;
       return { ...s, phase: 'custom-card' };
 
     case 'SET_CUSTOM_CARD': {
+      if (s.phase !== 'custom-card') return s;
       const left = a.left.trim();
       const right = a.right.trim();
       const topic = a.topic?.trim();
@@ -581,15 +589,19 @@ export function reducer(s: GameState, a: Action): GameState {
     }
 
     case 'HIDE_ZONE':
+      if (s.phase !== 'psychic') return s;
       return { ...s, phase: 'clue' };
 
     case 'CLUE_GIVEN':
+      if (s.phase !== 'clue') return s;
       return { ...s, clue: a.text?.trim() || null, phase: 'guess' };
 
     case 'SET_NEEDLE':
+      if (s.phase !== 'guess') return s;
       return { ...s, needle: a.angle };
 
     case 'CONFIRM_GUESS': {
+      if (s.phase !== 'guess') return s;
       const hasBettors =
         s.mode === 'ffa' ? ffaBystanders(s).length > 0 : s.teams.length >= 2;
       if (s.options.rivalBet && hasBettors) return { ...s, phase: 'rival-bet' };
@@ -597,6 +609,7 @@ export function reducer(s: GameState, a: Action): GameState {
     }
 
     case 'PLACE_BET': {
+      if (s.phase !== 'rival-bet') return s;
       if (s.mode === 'teams') {
         return applyRevealTeams(s, a.side);
       }
@@ -608,12 +621,15 @@ export function reducer(s: GameState, a: Action): GameState {
     }
 
     case 'REVEAL_FFA':
+      if (s.phase !== 'rival-bet') return s;
       return applyRevealFfaMultiple(s, s.bets);
 
     case 'SHOW_STANDINGS':
+      if (s.phase !== 'reveal') return s;
       return { ...s, phase: 'standings' };
 
     case 'NEXT_ROUND': {
+      if (s.phase !== 'standings') return s;
       // rota el psíquico del equipo que acaba de jugar
       let next: GameState = s;
       if (s.mode === 'teams') {
@@ -658,6 +674,7 @@ export function reducer(s: GameState, a: Action): GameState {
     }
 
     case 'PLAY_AGAIN':
+      if (s.phase !== 'end') return s;
       return reducer({ ...s, phase: 'setup' }, { type: 'START_GAME' });
 
     case 'RESTORE':
