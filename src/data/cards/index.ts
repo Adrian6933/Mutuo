@@ -8,6 +8,10 @@ import motor from './motor';
 import tecno from './tecno';
 import animales from './animales';
 import lugares from './lugares';
+import series from './series';
+import historia from './historia';
+import geografia from './geografia';
+import internet from './internet';
 
 export type CategoryId =
   | 'clasicas'
@@ -19,7 +23,11 @@ export type CategoryId =
   | 'motor'
   | 'tecno'
   | 'animales'
-  | 'lugares';
+  | 'lugares'
+  | 'series'
+  | 'historia'
+  | 'geografia'
+  | 'internet';
 
 export type Card = {
   left: string;
@@ -34,12 +42,16 @@ export const CATEGORIES: { id: CategoryId; label: string }[] = [
   { id: 'futbol', label: 'Fútbol' },
   { id: 'comida', label: 'Comida' },
   { id: 'cotidiano', label: 'Vida cotidiana' },
-  { id: 'cine', label: 'Cine y series' },
+  { id: 'cine', label: 'Cine' },
   { id: 'musica', label: 'Música y famoseo' },
   { id: 'motor', label: 'Coches y transporte' },
   { id: 'tecno', label: 'Tecnología y videojuegos' },
   { id: 'animales', label: 'Animales' },
   { id: 'lugares', label: 'Viajes y lugares' },
+  { id: 'series', label: 'Series y TV' },
+  { id: 'historia', label: 'Historia' },
+  { id: 'geografia', label: 'Geografía' },
+  { id: 'internet', label: 'Internet y memes' },
 ];
 
 const RAW: Record<CategoryId, [string, string][]> = {
@@ -53,6 +65,10 @@ const RAW: Record<CategoryId, [string, string][]> = {
   tecno,
   animales,
   lugares,
+  series,
+  historia,
+  geografia,
+  internet,
 };
 
 export const CARDS: Card[] = CATEGORIES.flatMap((c) =>

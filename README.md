@@ -16,7 +16,7 @@ Versión web del juego de mesa *Wavelength* para jugar en un solo dispositivo o 
 
 ### Configuración
 
-- **~500 cartas** en 10 temas (fútbol, comida, vida cotidiana, cine, música, motor, tecnología, animales, viajes y clásicas) con filtro multiselección.
+- **~700 cartas** en 14 temas (fútbol, comida, vida cotidiana, cine, música, motor, tecnología, animales, viajes, clásicas, series y TV, historia, geografía e internet/memes) con filtro multiselección.
 - El psíquico puede robar **carta aleatoria** o escribir la suya. La zona puede caer en los bordes y **envolver** al otro lado del dial, como en el juego físico.
 - Extras conmutables: **temporizador** para adivinar (30/60/90 s), **desempate** a muerte súbita, **estadísticas** finales y **sonidos**.
 - Jugadores reordenables **arrastrando el asa ⠿** (entre equipos también) y botones de orden aleatorio.
