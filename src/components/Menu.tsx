@@ -28,7 +28,7 @@ export default function Menu({ onMode, onOnline, onContinue }: MenuProps) {
           </span>
         </button>
         <button className="mode-card mode-card--online" onClick={onOnline}>
-          <span className="mode-card__title">🌐 En línea</span>
+          <span className="mode-card__title">🌐 Online</span>
           <span className="mode-card__desc">
             Cada uno desde su móvil: crea una lobby pública o privada con ID y clave, o únete a una.
           </span>

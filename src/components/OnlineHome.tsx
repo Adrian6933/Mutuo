@@ -46,7 +46,7 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
 
   return (
     <section className="panel panel--setup">
-      <p className="panel__kicker">En línea</p>
+      <p className="panel__kicker">Online</p>
       <h2 className="panel__title">Lobbies</h2>
 
       <input

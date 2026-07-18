@@ -38,7 +38,7 @@ export default function Online({ onExit }: { onExit: () => void }) {
       <main className="game__table">
         {!lobby.ready && (
           <section className="panel">
-            <p className="panel__kicker">En línea</p>
+            <p className="panel__kicker">Online</p>
             <h2 className="panel__title">Falta configurar Firebase</h2>
             <p className="panel__text">
               El modo online necesita un proyecto de Firebase (gratis). Crea uno en
