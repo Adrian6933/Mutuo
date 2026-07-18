@@ -11,6 +11,8 @@ export type EndRule =
 export type Options = {
   rivalBet: boolean;
   timerSecs: number;
+  /** segundos para pasar solo de la clasificación a la siguiente ronda; 0 = hay que pulsar el botón */
+  standingsSecs: number;
   tiebreak: boolean;
   stats: boolean;
   sound: boolean;

@@ -31,6 +31,7 @@ import {
 } from './reducer';
 import { cardsFor, shuffle, type CategoryId } from '../data/cards';
 import type { EndRule, GameState, Mode, Options } from './types';
+import { savePrefs, loadPrefs } from './storage';
 
 /* ---- tipos de red ---- */
 
@@ -119,6 +120,18 @@ export function defaultNetConfig(mode: Mode): NetConfig {
     endRule: mode === 'ffa' ? { kind: 'laps', laps: 1 } : { kind: 'points', goal: 10 },
     categories: ALL_CATEGORIES,
     options: DEFAULT_OPTIONS,
+  };
+}
+
+/** config por defecto, sobrescrita con los últimos ajustes guardados para ese modo (locales u online) */
+function netConfigFor(mode: Mode): NetConfig {
+  const base = defaultNetConfig(mode);
+  const saved = loadPrefs(mode);
+  return {
+    mode,
+    endRule: saved?.endRule ?? base.endRule,
+    categories: saved?.categories ?? base.categories,
+    options: { ...base.options, ...(saved?.options ?? {}) },
   };
 }
 
@@ -441,6 +454,17 @@ export function useLobby() {
             applyAction({ type: 'SHOW_STANDINGS' }, uid);
           }
         }, 5300);
+      } else if (st.phase === 'standings' && st.options.standingsSecs > 0) {
+        const end = Date.now() + st.options.standingsSecs * 1000;
+        void set(ref(db, `${base}/live/timerEnd`), end);
+        lastTimerPhase.current = st.phase;
+        const round = st.round;
+        timerHandle.current = setTimeout(() => {
+          const cur = hostState.current;
+          if (cur && cur.phase === 'standings' && cur.round === round) {
+            applyAction({ type: 'NEXT_ROUND' }, uid);
+          }
+        }, st.options.standingsSecs * 1000 + 300);
       } else {
         void remove(ref(db, `${base}/live/timerEnd`));
         lastTimerPhase.current = null;
@@ -483,7 +507,7 @@ export function useLobby() {
         };
         await set(ref(db, `lobbies/${id}`), {
           meta,
-          config: defaultNetConfig(opts.mode),
+          config: netConfigFor(opts.mode),
           players: { [me]: { name: opts.playerName, online: true, joinedAt: Date.now() } },
         });
         setError(null);
@@ -547,7 +571,16 @@ export function useLobby() {
 
       setConfig(patch: Partial<NetConfig>) {
         if (!lobbyId || !configRef.current) return;
-        void update(ref(getDb(), `lobbies/${lobbyId}/config`), patch);
+        // al cambiar de modo, recupera los ajustes guardados de ese modo en vez de arrastrar los del anterior
+        const finalPatch: Partial<NetConfig> =
+          patch.mode && patch.mode !== configRef.current.mode ? netConfigFor(patch.mode) : patch;
+        void update(ref(getDb(), `lobbies/${lobbyId}/config`), finalPatch);
+        const merged: NetConfig = { ...configRef.current, ...finalPatch };
+        savePrefs(merged.mode, {
+          endRule: merged.endRule,
+          categories: merged.categories,
+          options: merged.options,
+        });
       },
 
       assignTeam(playerUid: string, team: number) {

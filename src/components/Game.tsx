@@ -35,6 +35,7 @@ export default function Game() {
   const [online, setOnline] = useState(false);
   const [homeConfirm, setHomeConfirm] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [standingsLeft, setStandingsLeft] = useState<number | null>(null);
   const [saved, setSaved] = useState<GameState | null>(null);
   const prevPhase = useRef(s.phase);
   const lastTick = useRef(90);
@@ -85,6 +86,21 @@ export default function Game() {
   useEffect(() => {
     if (timeLeft === 0 && s.phase === 'guess') dispatch({ type: 'CONFIRM_GUESS' });
   }, [timeLeft, s.phase]);
+
+  // avance automático de la clasificación a la siguiente ronda
+  useEffect(() => {
+    if (s.phase !== 'standings' || s.options.standingsSecs === 0) {
+      setStandingsLeft(null);
+      return;
+    }
+    setStandingsLeft(s.options.standingsSecs);
+    const id = setInterval(() => setStandingsLeft((t) => (t === null ? null : t - 1)), 1000);
+    return () => clearInterval(id);
+  }, [s.phase, s.round, s.options.standingsSecs]);
+
+  useEffect(() => {
+    if (standingsLeft === 0 && s.phase === 'standings') dispatch({ type: 'NEXT_ROUND' });
+  }, [standingsLeft, s.phase]);
 
   const onNeedle = (angle: number) => {
     if (Math.abs(angle - lastTick.current) >= 4) {
@@ -373,6 +389,9 @@ export default function Game() {
                     ? '⚡ ¡Desempate!'
                     : 'Siguiente ronda'}
             </button>
+            {standingsLeft !== null && (
+              <p className="end-config__hint">Seguimos solos en {standingsLeft}s…</p>
+            )}
           </section>
         )}
 

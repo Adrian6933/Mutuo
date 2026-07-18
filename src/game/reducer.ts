@@ -57,6 +57,7 @@ export const MAX_GOAL = 100;
 export const DEFAULT_OPTIONS: Options = {
   rivalBet: true,
   timerSecs: 0,
+  standingsSecs: 0,
   tiebreak: true,
   stats: true,
   sound: true,

@@ -114,7 +114,7 @@ export default function OnlineGame({
 
   // cuenta atrás desde live.timerEnd
   useEffect(() => {
-    if (!['clue', 'guess', 'rival-bet', 'reveal'].includes(s.phase) || !live.timerEnd) {
+    if (!['clue', 'guess', 'rival-bet', 'reveal', 'standings'].includes(s.phase) || !live.timerEnd) {
       setTimeLeft(null);
       return;
     }
@@ -376,7 +376,14 @@ export default function OnlineGame({
                     : 'Siguiente ronda'}
             </button>
           ) : (
-            <p className="end-config__hint" style={{ marginTop: '14px' }}>Esperando a que el anfitrión inicie la siguiente ronda…</p>
+            <p className="end-config__hint" style={{ marginTop: '14px' }}>
+              {timeLeft !== null
+                ? `Seguimos solos en ${timeLeft}s…`
+                : 'Esperando a que el anfitrión inicie la siguiente ronda…'}
+            </p>
+          )}
+          {isHost && timeLeft !== null && (
+            <p className="end-config__hint">Seguimos solos en {timeLeft}s…</p>
           )}
         </section>
       )}

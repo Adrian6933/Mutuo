@@ -89,19 +89,57 @@ export default function Dial({ angle, target, open, interactive, onChange }: Dia
     return Math.max(MIN_ANGLE, Math.min(MAX_ANGLE, deg));
   };
 
+  const activePointerId = useRef<number | null>(null);
+
+  // si el diál se desmonta a mitad de un arrastre (fin de ronda), libera la captura
+  // para que el navegador no se quede "enganchado" al puntero en rondas siguientes
+  useEffect(() => {
+    return () => {
+      const svg = svgRef.current;
+      const pid = activePointerId.current;
+      if (svg && pid !== null) {
+        try {
+          if (svg.hasPointerCapture?.(pid)) svg.releasePointerCapture(pid);
+        } catch {
+          // nada que liberar
+        }
+      }
+    };
+  }, []);
+
   const handlePointerDown = (e: React.PointerEvent) => {
     if (!interactive || !onChange) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    // ignora un segundo dedo si ya hay un arrastre en curso
+    if (activePointerId.current !== null && activePointerId.current !== e.pointerId) return;
+    activePointerId.current = e.pointerId;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // el navegador puede rechazar la captura (p. ej. pointerId ya inválido); seguimos igualmente
+    }
     setDragging(true);
     onChange(angleFromEvent(e));
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!dragging || !interactive || !onChange) return;
+    if (activePointerId.current !== null && activePointerId.current !== e.pointerId) return;
     onChange(angleFromEvent(e));
   };
 
-  const handlePointerUp = () => setDragging(false);
+  const releasePointer = (e: React.PointerEvent) => {
+    try {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // ya liberada o pointerId inválido: no pasa nada
+    }
+    activePointerId.current = null;
+    setDragging(false);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => releasePointer(e);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!interactive || !onChange) return;

@@ -202,6 +202,7 @@ export function ToggleRow({ label, hint, checked, onChange }: ToggleProps) {
 }
 
 const TIMER_OPTIONS: Options['timerSecs'][] = [0, 15, 20, 30];
+const STANDINGS_OPTIONS: Options['standingsSecs'][] = [0, 8, 15];
 
 type ExtrasProps = {
   mode: Mode;
@@ -253,6 +254,45 @@ export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
                   onChange({ timerSecs: Math.max(1, Math.min(50, val)) });
                 } else {
                   onChange({ timerSecs: 0 });
+                }
+              }}
+            />
+          </div>
+        </span>
+      </div>
+      <div className="toggle-row toggle-row--static">
+        <span className="toggle-row__text">
+          <span className="toggle-row__label">Avanzar de ronda solo</span>
+          <span className="toggle-row__hint">
+            Al ver la clasificación, pasa a la siguiente ronda sin esperar a que alguien pulse el
+            botón. Útil en online para no depender del anfitrión.
+          </span>
+        </span>
+        <span className="chip-row chip-row--tight">
+          {STANDINGS_OPTIONS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={`chip chip--mini ${options.standingsSecs === t ? 'chip--on' : ''}`}
+              onClick={() => onChange({ standingsSecs: t })}
+            >
+              {t === 0 ? 'Off' : `${t}s`}
+            </button>
+          ))}
+          <div className="custom-timer-input-wrap">
+            <input
+              type="number"
+              className="input custom-timer-input"
+              value={!STANDINGS_OPTIONS.includes(options.standingsSecs) ? options.standingsSecs : ''}
+              placeholder="Pers."
+              min={1}
+              max={60}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val)) {
+                  onChange({ standingsSecs: Math.max(1, Math.min(60, val)) });
+                } else {
+                  onChange({ standingsSecs: 0 });
                 }
               }}
             />
