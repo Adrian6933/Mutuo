@@ -1138,12 +1138,18 @@ body {
   padding: 10px 14px;
   cursor: pointer;
   box-shadow: 3px 3px 0 var(--shadow);
-  transition: transform 120ms, box-shadow 120ms;
+  transition: border-color 150ms, background 150ms, box-shadow 150ms, transform 100ms;
 }
 
 .lobby-item:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 5px 5px 0 var(--shadow);
+  border-color: var(--teal-700);
+  background: var(--bezel);
+  box-shadow: 3px 3px 0 var(--teal-950);
+}
+
+.lobby-item:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--teal-950);
 }
 
 .lobby-item__name {
