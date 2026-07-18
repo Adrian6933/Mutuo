@@ -1138,18 +1138,30 @@ body {
   padding: 10px 14px;
   cursor: pointer;
   box-shadow: 3px 3px 0 var(--shadow);
-  transition: border-color 150ms, background 150ms, box-shadow 150ms, transform 100ms;
+  transition: transform 120ms, box-shadow 120ms, border-color 120ms, background 120ms;
+  position: relative;
 }
 
 .lobby-item:hover {
+  transform: translate(-3px, -3px);
+  box-shadow: 6px 6px 0 var(--teal-900);
   border-color: var(--teal-700);
   background: var(--bezel);
-  box-shadow: 3px 3px 0 var(--teal-950);
+}
+
+.lobby-item::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: -8px;
+  bottom: -8px;
+  background: transparent;
 }
 
 .lobby-item:active {
   transform: translate(1px, 1px);
-  box-shadow: 2px 2px 0 var(--teal-950);
+  box-shadow: 2px 2px 0 var(--teal-900);
 }
 
 .lobby-item__name {
