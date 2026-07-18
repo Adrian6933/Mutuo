@@ -660,7 +660,8 @@ export function reducer(s: GameState, a: Action): GameState {
 
       if (isGameOver(next)) {
         const lead = leaders(next);
-        if (next.options.tiebreak && lead.length > 1) {
+        const totalCompetitors = next.mode === 'ffa' ? next.players.length : next.teams.length;
+        if (next.options.tiebreak && lead.length > 1 && totalCompetitors > 2) {
           return freshRound({
             ...next,
             tiebreakKeys: lead,

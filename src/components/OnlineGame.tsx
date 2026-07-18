@@ -369,7 +369,7 @@ export default function OnlineGame({
             <button className="btn btn--primary" onClick={() => sendAction({ type: 'NEXT_ROUND' })}>
               {s.tiebreakKeys
                 ? 'Continuar'
-                : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak)
+                : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak || (s.mode === 'ffa' ? s.players.length : s.teams.length) <= 2)
                   ? 'Resultado final'
                   : isGameOver(s)
                     ? '⚡ ¡Desempate!'
