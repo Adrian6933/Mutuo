@@ -87,14 +87,20 @@ type ClueFormProps = {
   kicker: string;
   guesser: string;
   onSubmit: (text?: string) => void;
+  timeLeft?: number | null;
 };
 
-export function ClueForm({ kicker, guesser, onSubmit }: ClueFormProps) {
+export function ClueForm({ kicker, guesser, onSubmit, timeLeft }: ClueFormProps) {
   const [text, setText] = useState('');
 
   return (
     <section className="panel">
       <p className="panel__kicker">{kicker}</p>
+      {timeLeft !== undefined && timeLeft !== null && (
+        <div className={`panel__timer-large ${timeLeft <= 10 ? 'panel__timer-large--low' : ''}`}>
+          ⏱️ {timeLeft}s
+        </div>
+      )}
       <p className="panel__text">
         Di tu pista <b>en voz alta</b>, o escríbela si no estáis cerca. Le toca adivinar a{' '}
         <b>{guesser}</b>.

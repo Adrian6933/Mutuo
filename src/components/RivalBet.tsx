@@ -3,12 +3,18 @@ import type { BetSide } from '../game/types';
 type Props = {
   rivalName: string;
   onBet: (side: BetSide) => void;
+  timeLeft?: number | null;
 };
 
-export default function RivalBet({ rivalName, onBet }: Props) {
+export default function RivalBet({ rivalName, onBet, timeLeft }: Props) {
   return (
     <section className="panel">
       <p className="panel__kicker">Apuesta</p>
+      {timeLeft !== undefined && timeLeft !== null && (
+        <div className={`panel__timer-large ${timeLeft <= 10 ? 'panel__timer-large--low' : ''}`}>
+          ⏱️ {timeLeft}s
+        </div>
+      )}
       <h2 className="panel__title">{rivalName}</h2>
       <p className="panel__text">
         La aguja ya está fija. ¿Dónde creéis que está el centro (4) de la zona secreta? Si acertáis, os lleváis <b>+1</b>.

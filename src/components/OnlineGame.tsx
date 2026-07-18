@@ -34,10 +34,15 @@ type Props = {
   onLeave: () => void;
 };
 
-function Waiting({ kicker, text }: { kicker: string; text: string }) {
+function Waiting({ kicker, text, timeLeft }: { kicker: string; text: string; timeLeft?: number | null }) {
   return (
     <section className="panel">
       <p className="panel__kicker">{kicker}</p>
+      {timeLeft !== undefined && timeLeft !== null && (
+        <div className={`panel__timer-large ${timeLeft <= 10 ? 'panel__timer-large--low' : ''}`}>
+          ⏱️ {timeLeft}s
+        </div>
+      )}
       <p className="panel__text panel__text--waiting">{text}</p>
       <span className="waiting-dots" aria-hidden="true">
         <i />
@@ -213,7 +218,7 @@ export default function OnlineGame({
             onCustom={() => sendAction({ type: 'PICK_CUSTOM' })}
           />
         ) : (
-          <Waiting kicker={`Psíquico: ${psy}`} text={`${psy} está eligiendo carta…`} />
+          <Waiting kicker={`Psíquico: ${psy}`} text={`${psy} está eligiendo carta…`} timeLeft={timeLeft} />
         ))}
 
       {s.phase === 'custom-card' &&
@@ -223,7 +228,7 @@ export default function OnlineGame({
             onBack={() => sendAction({ type: 'BEGIN_TURN' })}
           />
         ) : (
-          <Waiting kicker={`Psíquico: ${psy}`} text={`${psy} está escribiendo su propia carta…`} />
+          <Waiting kicker={`Psíquico: ${psy}`} text={`${psy} está escribiendo su propia carta…`} timeLeft={timeLeft} />
         ))}
 
       {s.phase === 'psychic' &&
@@ -239,7 +244,7 @@ export default function OnlineGame({
             </button>
           </section>
         ) : (
-          <Waiting kicker={`Psíquico: ${psy}`} text={`${psy} está memorizando la zona secreta…`} />
+          <Waiting kicker={`Psíquico: ${psy}`} text={`${psy} está memorizando la zona secreta…`} timeLeft={timeLeft} />
         ))}
 
       {s.phase === 'clue' &&
@@ -248,15 +253,21 @@ export default function OnlineGame({
             kicker="Psíquico: tú"
             guesser={guesserNames(s)}
             onSubmit={(text) => sendAction({ type: 'CLUE_GIVEN', text })}
+            timeLeft={timeLeft}
           />
         ) : (
-          <Waiting kicker={`Psíquico: ${psy}`} text={`Atentos: ${psy} va a dar la pista…`} />
+          <Waiting kicker={`Psíquico: ${psy}`} text={`Atentos: ${psy} va a dar la pista…`} timeLeft={timeLeft} />
         ))}
 
       {s.phase === 'guess' &&
         (role.isGuesser ? (
           <section className="panel">
             <p className="panel__kicker">Te toca</p>
+            {timeLeft !== null && (
+              <div className={`panel__timer-large ${timeLeft <= 10 ? 'panel__timer-large--low' : ''}`}>
+                ⏱️ {timeLeft}s
+              </div>
+            )}
             {s.clue ? (
               <p className="panel__text">
                 Pista: <b>«{s.clue}»</b>
@@ -272,25 +283,32 @@ export default function OnlineGame({
           <Waiting
             kicker="Adivinando"
             text={s.clue ? `Pista: «${s.clue}»` : `${guesserNames(s)} está moviendo la aguja…`}
+            timeLeft={timeLeft}
           />
         ))}
 
       {s.phase === 'rival-bet' &&
         (role.isRival ? (
           hasVoted ? (
-            <Waiting kicker="Tu apuesta" text="Has votado. Esperando al resto de jugadores…" />
+            <Waiting kicker="Tu apuesta" text="Has votado. Esperando al resto de jugadores…" timeLeft={timeLeft} />
           ) : (
-            <RivalBet rivalName="Vuestra apuesta" onBet={(side) => sendAction({ type: 'PLACE_BET', side })} />
+            <RivalBet rivalName="Vuestra apuesta" onBet={(side) => sendAction({ type: 'PLACE_BET', side })} timeLeft={timeLeft} />
           )
         ) : (
           <Waiting
             kicker={s.mode === 'ffa' ? 'Apuesta de los demás' : 'Apuesta rival'}
             text={s.mode === 'ffa' ? 'El resto de jugadores está apostando…' : `${rivalTeam(s).name} está apostando…`}
+            timeLeft={timeLeft}
           />
         ))}
 
       {s.phase === 'reveal' && (
         <section className="panel">
+          {timeLeft !== null && (
+            <div className={`panel__timer-large ${timeLeft <= 10 ? 'panel__timer-large--low' : ''}`}>
+              ⏱️ {timeLeft}s
+            </div>
+          )}
           <p className={`reveal-points ${s.lastPts === 0 ? 'reveal-points--miss' : ''}`}>
             {REVEAL_TEXT[s.lastPts]} <b>+{s.lastPts}</b>
           </p>

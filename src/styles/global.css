@@ -561,8 +561,16 @@ body {
 
 .end-config__hint {
   margin: 0;
-  font-size: 0.8rem;
-  opacity: 0.55;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--teal-900);
+  opacity: 0.75;
+  background: var(--paper);
+  border: 1.5px solid var(--teal-700);
+  padding: 6px 14px;
+  border-radius: 999px;
+  margin-top: 10px;
+  display: inline-block;
 }
 
 /* ---- cajas de equipo ---- */
@@ -986,20 +994,57 @@ body {
 }
 
 .timer-pill {
-  background: var(--teal-700);
-  min-width: 64px;
+  background: #d97706; /* Amber-600 */
+  border: 1.5px solid #b45309; /* Amber-700 */
+  color: white !important;
+  font-size: 0.95rem !important;
+  font-weight: 800 !important;
+  padding: 6px 14px !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  min-width: 72px;
   text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .timer-pill--low {
-  background: var(--red);
-  animation: pulse 1s infinite;
+  background: #dc2626 !important; /* Red-600 */
+  border-color: #991b1b !important; /* Red-800 */
+  animation: pulse 0.7s infinite;
 }
 
 @keyframes pulse {
   50% {
-    transform: scale(1.08);
+    transform: scale(1.1);
   }
+}
+
+.panel__timer-large {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--teal-900);
+  margin: 6px 0 14px 0;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  animation: pulse-soft 2s infinite ease-in-out;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.panel__timer-large--low {
+  color: #dc2626; /* Red-600 */
+  animation: pulse-fast 0.6s infinite ease-in-out;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+@keyframes pulse-fast {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
 }
 
 .home-confirm {

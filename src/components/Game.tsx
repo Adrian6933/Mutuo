@@ -287,6 +287,11 @@ export default function Game() {
         {s.phase === 'guess' && (
           <section className="panel">
             <p className="panel__kicker">{guesserNames(s)}</p>
+            {timeLeft !== null && (
+              <div className={`panel__timer-large ${timeLeft <= 10 ? 'panel__timer-large--low' : ''}`}>
+                ⏱️ {timeLeft}s
+              </div>
+            )}
             {s.clue ? (
               <p className="panel__text">
                 Pista: <b>«{s.clue}»</b>
