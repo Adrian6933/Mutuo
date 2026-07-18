@@ -202,7 +202,7 @@ export default function Game() {
           <div className="dial-wrap">
             <Dial
               angle={s.needle}
-              target={inRound && s.card ? s.target : null}
+              target={dialOpen && s.card ? s.target : null}
               open={dialOpen}
               interactive={s.phase === 'guess'}
               onChange={onNeedle}

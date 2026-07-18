@@ -90,56 +90,83 @@ export default function Dial({ angle, target, open, interactive, onChange }: Dia
   };
 
   const activePointerId = useRef<number | null>(null);
+  const startX = useRef(0);
+  const startAngle = useRef(0);
+  const rectWidth = useRef(0);
 
-  // si el diál se desmonta a mitad de un arrastre (fin de ronda), libera la captura
-  // para que el navegador no se quede "enganchado" al puntero en rondas siguientes
+  // Evitar el scroll vertical en iOS al arrastrar sobre el dial
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    const preventDefault = (e: TouchEvent) => {
+      if (interactive) {
+        e.preventDefault();
+      }
+    };
+
+    svg.addEventListener('touchstart', preventDefault, { passive: false });
+    svg.addEventListener('touchmove', preventDefault, { passive: false });
+
+    return () => {
+      svg.removeEventListener('touchstart', preventDefault);
+      svg.removeEventListener('touchmove', preventDefault);
+    };
+  }, [interactive]);
+
   useEffect(() => {
     return () => {
-      const svg = svgRef.current;
-      const pid = activePointerId.current;
-      if (svg && pid !== null) {
-        try {
-          if (svg.hasPointerCapture?.(pid)) svg.releasePointerCapture(pid);
-        } catch {
-          // nada que liberar
-        }
-      }
+      activePointerId.current = null;
     };
   }, []);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (!interactive || !onChange) return;
-    // ignora un segundo dedo si ya hay un arrastre en curso
     if (activePointerId.current !== null && activePointerId.current !== e.pointerId) return;
     activePointerId.current = e.pointerId;
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // el navegador puede rechazar la captura (p. ej. pointerId ya inválido); seguimos igualmente
-    }
+
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    rectWidth.current = rect.width;
+    startX.current = e.clientX;
+
+    const initialAngle = angleFromEvent(e);
+    startAngle.current = initialAngle;
+    onChange(initialAngle);
     setDragging(true);
-    onChange(angleFromEvent(e));
   };
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!dragging || !interactive || !onChange) return;
-    if (activePointerId.current !== null && activePointerId.current !== e.pointerId) return;
-    onChange(angleFromEvent(e));
-  };
+  useEffect(() => {
+    if (!dragging) return;
 
-  const releasePointer = (e: React.PointerEvent) => {
-    try {
-      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }
-    } catch {
-      // ya liberada o pointerId inválido: no pasa nada
-    }
-    activePointerId.current = null;
-    setDragging(false);
-  };
+    const handlePointerMove = (e: PointerEvent) => {
+      if (activePointerId.current !== null && activePointerId.current !== e.pointerId) return;
+      if (!interactive || !onChange) return;
 
-  const handlePointerUp = (e: React.PointerEvent) => releasePointer(e);
+      const dx = e.clientX - startX.current;
+      const width = rectWidth.current || 300;
+      // Multiplicador 1.3: arrastrar el ancho completo del dial equivale a 234 grados
+      const newAngle = startAngle.current + (dx / width) * 180 * 1.3;
+      onChange(Math.max(MIN_ANGLE, Math.min(MAX_ANGLE, newAngle)));
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      if (activePointerId.current !== null && activePointerId.current !== e.pointerId) return;
+      activePointerId.current = null;
+      setDragging(false);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [dragging, interactive, onChange]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!interactive || !onChange) return;
@@ -193,9 +220,6 @@ export default function Dial({ angle, target, open, interactive, onChange }: Dia
       aria-valuenow={Math.round(angle)}
       tabIndex={interactive ? 0 : -1}
       onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
       onKeyDown={handleKeyDown}
       style={{ touchAction: 'none' }}
     >
