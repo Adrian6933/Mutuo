@@ -14,6 +14,7 @@ export type Options = {
   /** segundos para pasar solo de la clasificación a la siguiente ronda; 0 = hay que pulsar el botón */
   standingsSecs: number;
   tiebreak: boolean;
+  randomRotation: boolean;
   stats: boolean;
   sound: boolean;
 };

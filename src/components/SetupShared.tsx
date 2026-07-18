@@ -306,6 +306,12 @@ export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
         onChange={(v) => onChange({ tiebreak: v })}
       />
       <ToggleRow
+        label="Rotación aleatoria"
+        hint="Cambia el orden de turnos aleatoriamente tras cada ronda completa."
+        checked={options.randomRotation}
+        onChange={(v) => onChange({ randomRotation: v })}
+      />
+      <ToggleRow
         label="Estadísticas al final"
         hint="Cuatros clavados, mejor psíquico y más."
         checked={options.stats}

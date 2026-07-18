@@ -59,6 +59,7 @@ export const DEFAULT_OPTIONS: Options = {
   timerSecs: 0,
   standingsSecs: 0,
   tiebreak: true,
+  randomRotation: false,
   stats: true,
   sound: true,
 };
@@ -672,7 +673,18 @@ export function reducer(s: GameState, a: Action): GameState {
         return { ...next, phase: 'end' };
       }
 
-      return freshRound({ ...next, round: next.round + 1 });
+      let nextState = { ...next, round: next.round + 1 };
+      if (nextState.options.randomRotation && !nextState.tiebreakKeys) {
+        const count = nextState.mode === 'ffa' ? nextState.players.length : nextState.teams.length;
+        if (count > 0 && nextState.round % count === 0) {
+          if (nextState.mode === 'ffa') {
+            nextState.players = shuffle(nextState.players);
+          } else {
+            nextState.teams = shuffle(nextState.teams);
+          }
+        }
+      }
+      return freshRound(nextState);
     }
 
     case 'PLAY_AGAIN':
