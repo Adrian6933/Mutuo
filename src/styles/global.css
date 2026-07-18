@@ -1124,6 +1124,8 @@ body {
   width: 100%;
   max-height: 260px;
   overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 8px 8px 4px;
 }
 
 .lobby-item {
@@ -1143,8 +1145,8 @@ body {
 }
 
 .lobby-item:hover {
-  transform: translate(-3px, -3px);
-  box-shadow: 6px 6px 0 var(--teal-900);
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 var(--teal-900);
   border-color: var(--teal-700);
   background: var(--bezel);
 }
@@ -1154,8 +1156,8 @@ body {
   position: absolute;
   top: 0;
   left: 0;
-  right: -8px;
-  bottom: -8px;
+  right: -6px;
+  bottom: -6px;
   background: transparent;
 }
 
