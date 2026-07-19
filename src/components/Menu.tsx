@@ -1,5 +1,7 @@
+import type { Mode } from '../game/types';
+
 type MenuProps = {
-  onMode: (mode: 'ffa' | 'teams') => void;
+  onMode: (mode: Mode) => void;
   onOnline: () => void;
   onContinue?: () => void;
 };
@@ -13,11 +15,18 @@ export default function Menu({ onMode, onOnline, onContinue }: MenuProps) {
         Cuanto más cerca, más puntos.
       </p>
       <div className="mode-grid">
-        <button className="mode-card" onClick={() => onMode('ffa')}>
+        <button className="mode-card" onClick={() => onMode('ffa-all')}>
           <span className="mode-card__title">Todos contra todos</span>
           <span className="mode-card__desc">
-            Cada uno puntúa por su cuenta. El psíquico rota y el siguiente adivina: los puntos son
-            para los dos.
+            Uno da la pista y todos los demás marcan su aguja por turnos. Cada uno puntúa por su
+            cercanía y el psíquico gana +1 por acertante.
+          </span>
+        </button>
+        <button className="mode-card" onClick={() => onMode('ffa')}>
+          <span className="mode-card__title">En cadena</span>
+          <span className="mode-card__desc">
+            El psíquico rota y solo el siguiente adivina: los puntos son para los dos. El resto
+            apuesta de qué lado cae.
           </span>
         </button>
         <button className="mode-card" onClick={() => onMode('teams')}>

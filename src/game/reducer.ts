@@ -41,6 +41,7 @@ export type Action =
   | { type: 'SET_CUSTOM_CARD'; left: string; right: string; topic?: string }
   | { type: 'HIDE_ZONE' }
   | { type: 'CLUE_GIVEN'; text?: string }
+  | { type: 'BEGIN_GUESS' }
   | { type: 'SET_NEEDLE'; angle: number }
   | { type: 'CONFIRM_GUESS'; angle?: number }
   | { type: 'PLACE_BET'; side: BetSide; playerId?: number }
@@ -72,7 +73,7 @@ export function randomTarget(): number {
 
 export const initialState: GameState = {
   phase: 'menu',
-  mode: 'ffa',
+  mode: 'ffa-all',
   endRule: { kind: 'laps', laps: 1 },
   categories: ALL_CATEGORIES,
   options: DEFAULT_OPTIONS,
@@ -86,6 +87,8 @@ export const initialState: GameState = {
   clue: null,
   target: 90,
   needle: 90,
+  guesses: null,
+  guesserIdx: 0,
   bet: null,
   bets: null,
   betWon: false,
@@ -121,6 +124,17 @@ export function ffaPsychic(s: GameState): Player {
 export function ffaGuesser(s: GameState): Player {
   const elig = eligiblePlayers(s);
   return elig[(turnIndex(s, elig.length) + 1) % elig.length]!;
+}
+
+/** En "todos adivinan": todos los elegibles menos el psíquico, en orden de turno. */
+export function allGuessers(s: GameState): Player[] {
+  const psyId = ffaPsychic(s).id;
+  return eligiblePlayers(s).filter((p) => p.id !== psyId);
+}
+
+export function currentGuesser(s: GameState): Player {
+  const gs = allGuessers(s);
+  return gs[Math.min(s.guesserIdx, gs.length - 1)]!;
 }
 
 /** Jugadores que no son psíquico ni adivinador esta ronda: pueden apostar al lado.
@@ -165,26 +179,30 @@ export function teamGuessers(t: Team): TeamPlayer[] {
 }
 
 export function psychicName(s: GameState): string {
-  return s.mode === 'ffa' ? ffaPsychic(s).name : teamPsychic(activeTeam(s)).name;
+  return s.mode === 'teams' ? teamPsychic(activeTeam(s)).name : ffaPsychic(s).name;
+}
+
+function joinNames(names: string[]): string {
+  return names.length > 1
+    ? `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`
+    : names[0] ?? '';
 }
 
 export function guesserNames(s: GameState): string {
   if (s.mode === 'ffa') return ffaGuesser(s).name;
-  const names = teamGuessers(activeTeam(s)).map((p) => p.name);
-  return names.length > 1
-    ? `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`
-    : names[0]!;
+  if (s.mode === 'ffa-all') return joinNames(allGuessers(s).map((p) => p.name));
+  return joinNames(teamGuessers(activeTeam(s)).map((p) => p.name));
 }
 
 export function totalRounds(s: GameState): number | null {
   if (s.endRule.kind !== 'laps') return null;
-  const n = s.mode === 'ffa' ? s.players.length : s.teams.length;
+  const n = s.mode === 'teams' ? s.teams.length : s.players.length;
   return s.endRule.laps * n;
 }
 
 export function isGameOver(s: GameState): boolean {
   if (s.endRule.kind === 'points') {
-    const scores = s.mode === 'ffa' ? s.players.map((p) => p.score) : s.teams.map((t) => t.score);
+    const scores = s.mode === 'teams' ? s.teams.map((t) => t.score) : s.players.map((p) => p.score);
     return Math.max(...scores) >= s.endRule.goal;
   }
   return s.round + 1 >= (totalRounds(s) ?? Infinity);
@@ -192,9 +210,9 @@ export function isGameOver(s: GameState): boolean {
 
 export function leaders(s: GameState): string[] {
   const pool =
-    s.mode === 'ffa'
-      ? s.players.map((p) => ({ key: `p${p.id}`, score: p.score }))
-      : s.teams.map((t) => ({ key: `t${t.id}`, score: t.score }));
+    s.mode === 'teams'
+      ? s.teams.map((t) => ({ key: `t${t.id}`, score: t.score }))
+      : s.players.map((p) => ({ key: `p${p.id}`, score: p.score }));
   const sub = s.tiebreakKeys ? pool.filter((x) => s.tiebreakKeys!.includes(x.key)) : pool;
   const max = Math.max(...sub.map((x) => x.score));
   return sub.filter((x) => x.score === max).map((x) => x.key);
@@ -210,7 +228,7 @@ export function colorIdx(s: GameState, key: string): number {
 }
 
 export function canStart(s: GameState): boolean {
-  if (s.mode === 'ffa') return s.players.length >= 2;
+  if (s.mode !== 'teams') return s.players.length >= 2;
   return s.teams.length >= 2 && s.teams.every((t) => t.players.length >= 2);
 }
 
@@ -293,6 +311,42 @@ function applyRevealFfa(s: GameState, side: BetSide | null): GameState {
   return applyRevealFfaMultiple(s, side !== null ? bMap : null);
 }
 
+/** "Todos adivinan": cada adivinador puntúa su banda; el psíquico gana +1 por cada acertante.
+ *  En muerte súbita solo puntúan los adivinadores. */
+function applyRevealAll(s: GameState): GameState {
+  const psy = ffaPsychic(s);
+  const results = allGuessers(s).map((p) => ({
+    p,
+    pts: scoreFor(s.guesses?.[p.id.toString()] ?? 90, s.target),
+  }));
+  const maxPts = results.reduce((m, r) => Math.max(m, r.pts), 0);
+  const psyPts = s.tiebreakKeys ? 0 : results.filter((r) => r.pts > 0).length;
+
+  const gained = new Map<number, number>(
+    results.filter((r) => r.pts > 0).map((r) => [r.p.id, r.pts])
+  );
+  if (psyPts > 0) gained.set(psy.id, psyPts);
+  const players = s.players.map((p) =>
+    gained.has(p.id) ? { ...p, score: p.score + gained.get(p.id)! } : p
+  );
+
+  const lastGains = [
+    ...(psyPts > 0 ? [{ key: `p${psy.id}`, label: psy.name, pts: psyPts }] : []),
+    ...results.filter((r) => r.pts > 0).map((r) => ({ key: `p${r.p.id}`, label: r.p.name, pts: r.pts })),
+  ];
+  const history = [
+    ...s.history,
+    {
+      psychic: psy.name,
+      guesser: 'todos',
+      pts: maxPts,
+      betWon: false,
+      all: results.map((r) => ({ name: r.p.name, pts: r.pts })),
+    },
+  ];
+  return { ...s, betWon: false, lastPts: maxPts, lastGains, history, players, phase: 'reveal' };
+}
+
 function applyRevealTeams(s: GameState, side: BetSide | null): GameState {
   const pts = scoreFor(s.needle, s.target);
   const atIdx = activeTeamIdx(s);
@@ -329,14 +383,16 @@ function buildFromPrefs(mode: Mode, prefs: ModePrefs | null | undefined): GameSt
     ...initialState,
     mode,
     phase: 'setup',
-    endRule: mode === 'ffa' ? { kind: 'laps', laps: 1 } : { kind: 'points', goal: 10 },
+    endRule: mode !== 'teams' ? { kind: 'laps', laps: 1 } : { kind: 'points', goal: 10 },
   };
   let id = 1;
-  if (mode === 'ffa') {
+  if (mode !== 'teams') {
     const names =
       prefs?.players && prefs.players.length >= 2
         ? prefs.players.map((p) => p.name)
-        : ['Jugador 1', 'Jugador 2'];
+        : mode === 'ffa-all'
+          ? ['Jugador 1', 'Jugador 2', 'Jugador 3']
+          : ['Jugador 1', 'Jugador 2'];
     base.players = names.map((name) => ({ id: id++, name, score: 0 }));
   } else {
     const teamDefs =
@@ -368,6 +424,8 @@ function freshRound(s: GameState): GameState {
     clue: null,
     needle: 90,
     target: randomTarget(),
+    guesses: null,
+    guesserIdx: 0,
     bet: null,
     bets: null,
     betWon: false,
@@ -596,7 +654,15 @@ export function reducer(s: GameState, a: Action): GameState {
 
     case 'CLUE_GIVEN':
       if (s.phase !== 'clue') return s;
-      return { ...s, clue: a.text?.trim() || null, phase: 'guess' };
+      return {
+        ...s,
+        clue: a.text?.trim() || null,
+        phase: s.mode === 'ffa-all' ? 'guess-handoff' : 'guess',
+      };
+
+    case 'BEGIN_GUESS':
+      if (s.phase !== 'guess-handoff') return s;
+      return { ...s, needle: 90, phase: 'guess' };
 
     case 'SET_NEEDLE':
       if (s.phase !== 'guess') return s;
@@ -604,6 +670,16 @@ export function reducer(s: GameState, a: Action): GameState {
 
     case 'CONFIRM_GUESS': {
       if (s.phase !== 'guess') return s;
+      if (s.mode === 'ffa-all') {
+        const gs = allGuessers(s);
+        const cur = gs[s.guesserIdx];
+        if (!cur) return s;
+        const guesses = { ...(s.guesses ?? {}), [cur.id.toString()]: a.angle ?? s.needle };
+        if (s.guesserIdx + 1 < gs.length) {
+          return { ...s, guesses, needle: 90, guesserIdx: s.guesserIdx + 1, phase: 'guess-handoff' };
+        }
+        return applyRevealAll({ ...s, guesses });
+      }
       const hasBettors =
         s.mode === 'ffa' ? ffaBystanders(s).length > 0 : s.teams.length >= 2;
       if (s.options.rivalBet && hasBettors) return { ...s, phase: 'rival-bet' };
@@ -644,7 +720,7 @@ export function reducer(s: GameState, a: Action): GameState {
 
       if (next.tiebreakKeys) {
         const eligCount =
-          next.mode === 'ffa' ? eligiblePlayers(next).length : eligibleTeams(next).length;
+          next.mode === 'teams' ? eligibleTeams(next).length : eligiblePlayers(next).length;
         const played = next.round + 1 - next.tiebreakStart;
         if (played % eligCount === 0) {
           const lead = leaders(next);
@@ -661,7 +737,7 @@ export function reducer(s: GameState, a: Action): GameState {
 
       if (isGameOver(next)) {
         const lead = leaders(next);
-        const totalCompetitors = next.mode === 'ffa' ? next.players.length : next.teams.length;
+        const totalCompetitors = next.mode === 'teams' ? next.teams.length : next.players.length;
         if (next.options.tiebreak && lead.length > 1 && totalCompetitors > 2) {
           return freshRound({
             ...next,
@@ -675,12 +751,12 @@ export function reducer(s: GameState, a: Action): GameState {
 
       let nextState = { ...next, round: next.round + 1 };
       if (nextState.options.randomRotation && !nextState.tiebreakKeys) {
-        const count = nextState.mode === 'ffa' ? nextState.players.length : nextState.teams.length;
+        const count = nextState.mode === 'teams' ? nextState.teams.length : nextState.players.length;
         if (count > 0 && nextState.round % count === 0) {
-          if (nextState.mode === 'ffa') {
-            nextState.players = shuffle(nextState.players);
-          } else {
+          if (nextState.mode === 'teams') {
             nextState.teams = shuffle(nextState.teams);
+          } else {
+            nextState.players = shuffle(nextState.players);
           }
         }
       }

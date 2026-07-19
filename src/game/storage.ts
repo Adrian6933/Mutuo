@@ -57,18 +57,18 @@ export function loadPrefs(mode: Mode): ModePrefs | null {
 }
 
 export function prefsFromState(s: GameState): ModePrefs {
-  return s.mode === 'ffa'
+  return s.mode === 'teams'
     ? {
-        players: s.players.map((p) => ({ name: p.name })),
+        teams: s.teams.map((t) => ({
+          name: t.name,
+          players: t.players.map((p) => ({ name: p.name })),
+        })),
         endRule: s.endRule,
         categories: s.categories,
         options: s.options,
       }
     : {
-        teams: s.teams.map((t) => ({
-          name: t.name,
-          players: t.players.map((p) => ({ name: p.name })),
-        })),
+        players: s.players.map((p) => ({ name: p.name })),
         endRule: s.endRule,
         categories: s.categories,
         options: s.options,

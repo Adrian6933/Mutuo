@@ -66,7 +66,7 @@ type EndConfigProps = {
 };
 
 export function EndConfig({ mode, endRule, onChange }: EndConfigProps) {
-  const lapsLabel = mode === 'ffa' ? 'Vueltas' : 'Rondas';
+  const lapsLabel = mode !== 'teams' ? 'Vueltas' : 'Rondas';
   const isLaps = endRule.kind === 'laps';
   const value = isLaps ? endRule.laps : endRule.goal;
   const max = isLaps ? MAX_LAPS : MAX_GOAL;
@@ -99,7 +99,7 @@ export function EndConfig({ mode, endRule, onChange }: EndConfigProps) {
             className={`chip ${value === n ? 'chip--on' : ''}`}
             onClick={() => onChange(isLaps ? { kind: 'laps', laps: n } : { kind: 'points', goal: n })}
           >
-            {isLaps ? `${n} ${mode === 'ffa' ? (n === 1 ? 'vuelta' : 'vueltas') : 'por equipo'}` : `${n} puntos`}
+            {isLaps ? `${n} ${mode !== 'teams' ? (n === 1 ? 'vuelta' : 'vueltas') : 'por equipo'}` : `${n} puntos`}
           </button>
         ))}
         <label className={`chip chip--custom ${!presets.includes(value) ? 'chip--on' : ''}`}>
@@ -119,7 +119,7 @@ export function EndConfig({ mode, endRule, onChange }: EndConfigProps) {
       </div>
       <p className="end-config__hint">
         {isLaps
-          ? mode === 'ffa'
+          ? mode !== 'teams'
             ? 'Una vuelta = cada jugador es psíquico una vez.'
             : 'Cada equipo juega ese número de rondas.'
           : 'Gana quien llegue primero a la meta.'}
@@ -214,16 +214,18 @@ export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
   return (
     <div className="end-config extras">
       <p className="panel__kicker">Extras</p>
-      <ToggleRow
-        label={mode === 'teams' ? 'Apuesta rival' : 'Apuesta de lado'}
-        hint={
-          mode === 'teams'
-            ? 'El otro equipo apuesta a qué lado de la aguja está la zona (+1 si acierta).'
-            : 'Los que no juegan esta ronda apuestan a qué lado está la zona (+1 si aciertan).'
-        }
-        checked={options.rivalBet}
-        onChange={(v) => onChange({ rivalBet: v })}
-      />
+      {mode !== 'ffa-all' && (
+        <ToggleRow
+          label={mode === 'teams' ? 'Apuesta rival' : 'Apuesta de lado'}
+          hint={
+            mode === 'teams'
+              ? 'El otro equipo apuesta a qué lado de la aguja está la zona (+1 si acierta).'
+              : 'Los que no juegan esta ronda apuestan a qué lado está la zona (+1 si aciertan).'
+          }
+          checked={options.rivalBet}
+          onChange={(v) => onChange({ rivalBet: v })}
+        />
+      )}
       <div className="toggle-row toggle-row--static">
         <span className="toggle-row__text">
           <span className="toggle-row__label">Temporizador para adivinar</span>

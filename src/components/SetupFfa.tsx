@@ -15,7 +15,7 @@ export default function SetupFfa({ s, dispatch }: Props) {
 
   return (
     <section className="panel panel--setup">
-      <p className="panel__kicker">Todos contra todos</p>
+      <p className="panel__kicker">{s.mode === 'ffa-all' ? 'Todos contra todos' : 'En cadena'}</p>
       <h2 className="panel__title">¿Quién juega?</h2>
 
       <div className="player-list">
@@ -50,13 +50,13 @@ export default function SetupFfa({ s, dispatch }: Props) {
       />
 
       <EndConfig
-        mode="ffa"
+        mode={s.mode}
         endRule={s.endRule}
         onChange={(endRule) => dispatch({ type: 'SET_END_RULE', endRule })}
       />
 
       <ExtrasConfig
-        mode="ffa"
+        mode={s.mode}
         options={s.options}
         onChange={(options) => dispatch({ type: 'SET_OPTIONS', options })}
       />

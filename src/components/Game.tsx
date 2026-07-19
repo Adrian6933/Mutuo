@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
-import Dial from './Dial';
+import Dial, { scoreFor, type DialMarker } from './Dial';
 import Menu from './Menu';
 import Online from './Online';
 import SetupFfa from './SetupFfa';
@@ -18,6 +18,10 @@ import {
   rivalTeam,
   ffaBystanderNames,
   ffaBystanders,
+  ffaPsychic,
+  allGuessers,
+  currentGuesser,
+  colorIdx,
   circularDelta,
   totalRounds,
   isGameOver,
@@ -28,7 +32,7 @@ import { loadPrefs, savePrefs, prefsFromState, loadState, saveState, clearState 
 import { setSoundEnabled, sfx } from '../game/sound';
 import type { GameState } from '../game/types';
 
-import { REVEAL_TEXT, buildRows, winnerText, Stats } from './gameShared';
+import { REVEAL_TEXT, buildRows, winnerText, initialsOf, Stats } from './gameShared';
 
 export default function Game() {
   const [s, dispatch] = useReducer(reducer, initialState);
@@ -124,9 +128,27 @@ export default function Game() {
   const inRound = !['menu', 'setup', 'standings', 'end'].includes(s.phase);
   const dialVisible = s.phase === 'menu' || inRound;
   const dialOpen = s.phase === 'psychic' || s.phase === 'reveal';
-  const showCardStrip = ['psychic', 'clue', 'guess', 'rival-bet', 'reveal'].includes(s.phase);
+  const showCardStrip = ['psychic', 'clue', 'guess', 'guess-handoff', 'rival-bet', 'reveal'].includes(s.phase);
   const rows = ['standings', 'end'].includes(s.phase) ? buildRows(s) : [];
   const total = s.tiebreakKeys ? null : inRound || s.phase === 'standings' ? totalRounds(s) : null;
+
+  // reveal de "todos adivinan": marcador por adivinador sobre el dial
+  const revealAll = s.phase === 'reveal' && s.mode === 'ffa-all';
+  const markers: DialMarker[] | null = revealAll
+    ? allGuessers(s).map((p) => {
+        const angle = s.guesses?.[p.id.toString()] ?? 90;
+        return {
+          angle,
+          initials: initialsOf(p.name),
+          name: p.name,
+          colorIdx: colorIdx(s, `p${p.id}`),
+          pts: scoreFor(angle, s.target),
+        };
+      })
+    : null;
+  const psyGain = revealAll
+    ? s.lastGains.find((g) => g.key === `p${ffaPsychic(s).id}`)?.pts ?? 0
+    : 0;
 
   return (
     <div className="game">
@@ -206,6 +228,8 @@ export default function Game() {
               open={dialOpen}
               interactive={s.phase === 'guess'}
               onChange={onNeedle}
+              markers={markers}
+              showNeedle={!revealAll}
             />
             {s.phase === 'reveal' && s.lastPts === 4 && <Confetti />}
           </div>
@@ -228,10 +252,10 @@ export default function Game() {
         )}
 
         {s.phase === 'setup' &&
-          (s.mode === 'ffa' ? (
-            <SetupFfa s={s} dispatch={dispatch} />
-          ) : (
+          (s.mode === 'teams' ? (
             <SetupTeams s={s} dispatch={dispatch} />
+          ) : (
+            <SetupFfa s={s} dispatch={dispatch} />
           ))}
 
         {s.phase === 'handoff' && (
@@ -284,9 +308,31 @@ export default function Game() {
           />
         )}
 
+        {s.phase === 'guess-handoff' && (
+          <section className="panel">
+            <p className="panel__kicker">
+              Adivina {s.guesserIdx + 1} de {allGuessers(s).length}
+            </p>
+            <h2 className="panel__title">{currentGuesser(s).name}, te toca adivinar</h2>
+            {s.clue && (
+              <p className="panel__text">
+                Pista: <b>«{s.clue}»</b>
+              </p>
+            )}
+            <p className="panel__text">Pasadle el móvil sin comentar la jugada.</p>
+            <button className="btn btn--primary" onClick={() => dispatch({ type: 'BEGIN_GUESS' })}>
+              Soy {currentGuesser(s).name}
+            </button>
+          </section>
+        )}
+
         {s.phase === 'guess' && (
           <section className="panel">
-            <p className="panel__kicker">{guesserNames(s)}</p>
+            <p className="panel__kicker">
+              {s.mode === 'ffa-all'
+                ? `${currentGuesser(s).name} · ${s.guesserIdx + 1}/${allGuessers(s).length}`
+                : guesserNames(s)}
+            </p>
             {timeLeft !== null && (
               <div className={`panel__timer-large ${timeLeft <= 10 ? 'panel__timer-large--low' : ''}`}>
                 ⏱️ {timeLeft}s
@@ -297,7 +343,11 @@ export default function Game() {
                 Pista: <b>«{s.clue}»</b>
               </p>
             ) : (
-              <p className="panel__text">Arrastrad la aguja hasta donde creáis que apunta la pista.</p>
+              <p className="panel__text">
+                {s.mode === 'ffa-all'
+                  ? 'Arrastra la aguja hasta donde creas que apunta la pista.'
+                  : 'Arrastrad la aguja hasta donde creáis que apunta la pista.'}
+              </p>
             )}
             <button className="btn btn--primary" onClick={() => dispatch({ type: 'CONFIRM_GUESS' })}>
               Confirmar posición
@@ -312,7 +362,43 @@ export default function Game() {
           />
         )}
 
-        {s.phase === 'reveal' && (
+        {revealAll && markers && (
+          <section className="panel">
+            <p className={`reveal-points ${s.lastPts === 0 ? 'reveal-points--miss' : ''}`}>
+              {REVEAL_TEXT[s.lastPts]}
+            </p>
+            <p className="panel__text">
+              {s.tiebreakKeys ? (
+                'En muerte súbita solo puntúan los adivinadores.'
+              ) : psyGain > 0 ? (
+                <>
+                  {psychicName(s)} se lleva <b>+{psyGain}</b> por{' '}
+                  {psyGain === 1 ? 'un acertante' : `${psyGain} acertantes`}.
+                </>
+              ) : (
+                `Nadie ha caído en la zona: ${psychicName(s)} se queda a cero.`
+              )}
+            </p>
+            <ul className="all-results">
+              {[...markers]
+                .sort((a, b) => b.pts - a.pts)
+                .map((m) => (
+                  <li key={m.name} className={`all-results__item c${m.colorIdx}`}>
+                    <span className="all-results__badge">{m.initials}</span>
+                    <span className="all-results__name">{m.name}</span>
+                    <span className={`all-results__pts ${m.pts === 0 ? 'all-results__pts--miss' : ''}`}>
+                      {m.pts > 0 ? `+${m.pts}` : '0'}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+            <button className="btn btn--primary" onClick={() => dispatch({ type: 'SHOW_STANDINGS' })}>
+              Ver clasificación
+            </button>
+          </section>
+        )}
+
+        {s.phase === 'reveal' && s.mode !== 'ffa-all' && (
           <section className="panel">
             <p className={`reveal-points ${s.lastPts === 0 ? 'reveal-points--miss' : ''}`}>
               {REVEAL_TEXT[s.lastPts]} <b>+{s.lastPts}</b>
@@ -388,7 +474,7 @@ export default function Game() {
             <button className="btn btn--primary" onClick={() => dispatch({ type: 'NEXT_ROUND' })}>
               {s.tiebreakKeys
                 ? 'Continuar'
-                : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak || (s.mode === 'ffa' ? s.players.length : s.teams.length) <= 2)
+                : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak || (s.mode === 'teams' ? s.teams.length : s.players.length) <= 2)
                   ? 'Resultado final'
                   : isGameOver(s)
                     ? '⚡ ¡Desempate!'

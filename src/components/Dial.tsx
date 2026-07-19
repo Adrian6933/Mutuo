@@ -54,19 +54,43 @@ function sector(a1: number, a2: number, radius: number) {
   return `M ${CX} ${CY} L ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} A ${radius} ${radius} 0 0 1 ${p2.x.toFixed(2)} ${p2.y.toFixed(2)} Z`;
 }
 
+export type DialMarker = {
+  angle: number;
+  initials: string;
+  name: string;
+  colorIdx: number;
+  pts: number;
+};
+
 type DialProps = {
   angle: number;
   target: number | null;
   open: boolean;
   interactive: boolean;
   onChange?: (angle: number) => void;
+  /** marcadores de los adivinadores (modo "todos adivinan") en el reveal */
+  markers?: DialMarker[] | null;
+  showNeedle?: boolean;
 };
 
-export default function Dial({ angle, target, open, interactive, onChange }: DialProps) {
+export default function Dial({
+  angle,
+  target,
+  open,
+  interactive,
+  onChange,
+  markers = null,
+  showNeedle = true,
+}: DialProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [dragging, setDragging] = useState(false);
   const [spinning, setSpinning] = useState(false);
+  const [selMarker, setSelMarker] = useState<number | null>(null);
   const wasOpen = useRef(open);
+
+  useEffect(() => {
+    setSelMarker(null);
+  }, [markers]);
 
   useEffect(() => {
     const was = wasOpen.current;
@@ -188,6 +212,23 @@ export default function Dial({ angle, target, open, interactive, onChange }: Dia
     );
   }
 
+  // Marcadores: si dos caen casi en el mismo ángulo, el siguiente baja de radio para no taparse.
+  const markerSpots = (markers ?? []).map((m, i, arr) => {
+    let level = 0;
+    for (let j = 0; j < i; j++) {
+      const d = Math.abs(arr[j]!.angle - m.angle) % 180;
+      if (Math.min(d, 180 - d) < 9) level += 1;
+    }
+    return { ...m, ...polar(m.angle, R - 34 - level * 30), idx: i };
+  });
+
+  const sel = selMarker !== null ? markerSpots[selMarker] : null;
+  const selLabel = sel ? `${sel.name} · ${sel.pts > 0 ? `+${sel.pts}` : '0'}` : '';
+  const bubbleW = selLabel.length * 7.4 + 22;
+  const bubbleX = sel ? Math.max(6, Math.min(VBW - 6 - bubbleW, sel.x - bubbleW / 2)) : 0;
+  const bubbleAbove = sel ? sel.y - 26 - 26 > 4 : true;
+  const bubbleY = sel ? (bubbleAbove ? sel.y - 26 - 26 : sel.y + 22) : 0;
+
   const ticks = [];
   for (let a = 0; a <= 180; a += 6) {
     const major = a % 30 === 0;
@@ -306,22 +347,63 @@ export default function Dial({ angle, target, open, interactive, onChange }: Dia
       <rect x={32} y={CY - 4} width={VBW - 64} height={10} rx={5} fill="var(--teal-950)" opacity={0.5} />
 
       {/* Aguja */}
-      <g
-        style={{
-          transform: `rotate(${angle - 90}deg)`,
-          transformOrigin: `${CX}px ${CY}px`,
-          transition: dragging ? 'none' : 'transform 420ms cubic-bezier(.3,1.4,.4,1)',
-        }}
-      >
-        <polygon
-          points={`${CX - 6},${CY} ${CX + 6},${CY} ${CX + 1.5},${CY - R + 14} ${CX - 1.5},${CY - R + 14}`}
-          fill="var(--red)"
-          stroke="var(--red-dark)"
-          strokeWidth={1}
-        />
-      </g>
+      {showNeedle && (
+        <g
+          style={{
+            transform: `rotate(${angle - 90}deg)`,
+            transformOrigin: `${CX}px ${CY}px`,
+            transition: dragging ? 'none' : 'transform 420ms cubic-bezier(.3,1.4,.4,1)',
+          }}
+        >
+          <polygon
+            points={`${CX - 6},${CY} ${CX + 6},${CY} ${CX + 1.5},${CY - R + 14} ${CX - 1.5},${CY - R + 14}`}
+            fill="var(--red)"
+            stroke="var(--red-dark)"
+            strokeWidth={1}
+          />
+        </g>
+      )}
       <circle cx={CX} cy={CY} r={17} fill="var(--red)" stroke="var(--red-dark)" strokeWidth={3} />
       <circle cx={CX} cy={CY} r={6} fill="var(--red-dark)" />
+
+      {/* Marcadores de los adivinadores */}
+      {markerSpots.map((m) => (
+        <g
+          key={m.idx}
+          className={`dial-marker c${m.colorIdx}`}
+          style={{ animationDelay: `${1350 + m.idx * 130}ms` }}
+          onMouseEnter={() => setSelMarker(m.idx)}
+          onMouseLeave={() => setSelMarker((cur) => (cur === m.idx ? null : cur))}
+          onClick={() => setSelMarker((cur) => (cur === m.idx ? null : m.idx))}
+        >
+          <title>{`${m.name} · ${m.pts > 0 ? `+${m.pts}` : '0'}`}</title>
+          <circle
+            cx={m.x.toFixed(2)}
+            cy={m.y.toFixed(2)}
+            r={14}
+            fill="var(--pc)"
+            stroke="var(--paper)"
+            strokeWidth={3}
+          />
+          <text x={m.x.toFixed(2)} y={m.y.toFixed(2)} className="dial-marker__txt">
+            {m.initials}
+          </text>
+        </g>
+      ))}
+
+      {/* Burbuja con el nombre completo del marcador tocado */}
+      {sel && (
+        <g className="dial-marker-tip" pointerEvents="none">
+          <rect x={bubbleX} y={bubbleY} width={bubbleW} height={26} rx={13} fill="var(--teal-900)" />
+          <text
+            x={bubbleX + bubbleW / 2}
+            y={bubbleY + 13}
+            className="dial-marker-tip__txt"
+          >
+            {selLabel}
+          </text>
+        </g>
+      )}
     </svg>
   );
 }

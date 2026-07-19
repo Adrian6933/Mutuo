@@ -146,7 +146,7 @@ export default function LobbyRoom({
                 className={`seg__opt ${config.mode === m ? 'seg__opt--on' : ''}`}
                 onClick={() => onSetConfig({ mode: m })}
               >
-                {m === 'ffa' ? 'Todos contra todos' : 'Por equipos'}
+                {m === 'ffa' ? 'En cadena' : 'Por equipos'}
               </button>
             ))}
           </div>
@@ -178,7 +178,7 @@ export default function LobbyRoom({
       ) : (
         <p className="panel__text">
           El anfitrión está configurando la partida:{' '}
-          <b>{config.mode === 'ffa' ? 'todos contra todos' : 'por equipos'}</b>,{' '}
+          <b>{config.mode === 'ffa' ? 'en cadena' : 'por equipos'}</b>,{' '}
           {config.endRule.kind === 'laps'
             ? `${config.endRule.laps} ${config.mode === 'ffa' ? 'vueltas' : 'rondas'}`
             : `meta de ${config.endRule.goal} puntos`}

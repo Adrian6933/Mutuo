@@ -1477,3 +1477,124 @@ body {
   background: var(--sand-100) !important;
   border-color: var(--teal-900) !important;
 }
+
+/* ---- Todos contra todos: marcadores de adivinadores en el dial ---- */
+
+.dial-marker {
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: marker-pop 420ms cubic-bezier(0.3, 1.6, 0.5, 1) backwards;
+}
+
+@keyframes marker-pop {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.dial-marker circle {
+  transition: filter 150ms ease;
+}
+
+.dial-marker:hover circle {
+  filter: brightness(1.12);
+}
+
+.dial-marker__txt {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  fill: var(--paper);
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: #00000025;
+  stroke-width: 1.5px;
+}
+
+.dial-marker-tip {
+  animation: tip-fade 160ms ease-out;
+}
+
+@keyframes tip-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.dial-marker-tip__txt {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  fill: var(--paper);
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+/* Resumen de puntos por adivinador en el reveal */
+.all-results {
+  margin: 18px 0 0;
+  width: 100%;
+  padding: 12px 16px;
+  list-style: none;
+  text-align: left;
+  background: var(--paper);
+  border: 2.5px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: 3px 3px 0 var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.all-results__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.95rem;
+  border-bottom: 1.5px dashed rgba(0, 0, 0, 0.08);
+  padding-bottom: 6px;
+}
+
+.all-results__item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.all-results__badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--pc);
+  color: var(--paper);
+  font-size: 0.7rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 2px #00000018;
+}
+
+.all-results__name {
+  flex: 1;
+  font-weight: 700;
+}
+
+.all-results__pts {
+  font-weight: 800;
+  color: var(--teal-700);
+}
+
+.all-results__pts--miss {
+  color: var(--ink);
+  opacity: 0.45;
+  font-weight: 700;
+}

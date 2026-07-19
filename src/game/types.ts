@@ -1,6 +1,6 @@
 import type { Card, CategoryId } from '../data/cards';
 
-export type Mode = 'ffa' | 'teams';
+export type Mode = 'ffa' | 'ffa-all' | 'teams';
 
 export type BetSide = 'left' | 'right' | 'exact' | 'miss';
 
@@ -47,6 +47,7 @@ export type Phase =
   | 'psychic'
   | 'clue'
   | 'guess'
+  | 'guess-handoff'
   | 'rival-bet'
   | 'reveal'
   | 'standings'
@@ -63,6 +64,8 @@ export type RoundLog = {
   guesser: string;
   pts: number;
   betWon: boolean;
+  /** en "todos adivinan": puntos de cada adivinador de la ronda */
+  all?: { name: string; pts: number }[];
 };
 
 export type GameState = {
@@ -82,6 +85,10 @@ export type GameState = {
   clue: string | null;
   target: number;
   needle: number;
+  /** en "todos adivinan": ángulo confirmado por cada jugador (id → ángulo) */
+  guesses: Record<string, number> | null;
+  /** índice del adivinador al que le toca dentro de la ronda */
+  guesserIdx: number;
   bet: BetSide | null;
   bets: Record<string, BetSide> | null;
   betWon: boolean;
