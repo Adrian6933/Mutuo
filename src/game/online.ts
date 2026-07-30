@@ -18,6 +18,7 @@ import { getDb, ensureAuth, firebaseReady } from '../lib/firebase';
 import {
   reducer,
   initialState,
+  deckFor,
   ALL_CATEGORIES,
   DEFAULT_OPTIONS,
   ffaPsychic,
@@ -30,7 +31,9 @@ import {
   teamGuessers,
   type Action,
 } from './reducer';
-import { cardsFor, shuffle, type CategoryId } from '../data/cards';
+import { shuffle, type CategoryId } from '../data/cards';
+import { sanitizeCategories } from './customCats';
+import { getProfile, setProfile } from './profile';
 import type { EndRule, GameState, Mode, Options } from './types';
 import { savePrefs, loadPrefs } from './storage';
 
@@ -51,6 +54,10 @@ export type LobbyPlayer = {
   name: string;
   online: boolean;
   joinedAt: number;
+  /** foto de perfil (data URL) para el dial y la lobby */
+  avatar?: string | null;
+  /** frase del perfil, para la burbuja del marcador */
+  bio?: string | null;
   /** índice de equipo asignado por el host (modo equipos) */
   team?: number;
   /** orden de lista o de equipo asignado */
@@ -75,8 +82,6 @@ export type Role = {
   isRival: boolean;
   isMember: boolean;
 };
-
-const NICK_KEY = 'frecuencia-nick';
 
 /* ---- utilidades ---- */
 
@@ -130,12 +135,19 @@ export function defaultNetConfig(mode: Mode): NetConfig {
 function netConfigFor(mode: Mode): NetConfig {
   const base = defaultNetConfig(mode);
   const saved = loadPrefs(mode);
+  const categories = saved?.categories ? sanitizeCategories(saved.categories) : base.categories;
   return {
     mode,
     endRule: saved?.endRule ?? base.endRule,
-    categories: saved?.categories ?? base.categories,
+    categories: categories.length > 0 ? categories : base.categories,
     options: { ...base.options, ...(saved?.options ?? {}) },
   };
+}
+
+/** datos del perfil local que viajan con el jugador a la lobby */
+function profileFields(): { avatar: string | null; bio: string | null } {
+  const p = getProfile();
+  return { avatar: p.avatar, bio: p.bio.trim() || null };
 }
 
 /* ---- roles ---- */
@@ -352,7 +364,7 @@ export function useLobby() {
     // al asumir como host, reconstruye estado + mazo local
     if (game && (!hostState.current || hostState.current.round !== game.round || hostState.current.phase !== game.phase)) {
       const cats = game.categories ?? ALL_CATEGORIES;
-      hostState.current = { ...game, deck: shuffle(cardsFor(cats)), deckIndex: 0 };
+      hostState.current = { ...game, deck: shuffle(deckFor(cats)), deckIndex: 0 };
     }
 
     const publish = (st: GameState) => {
@@ -554,7 +566,9 @@ export function useLobby() {
         await set(ref(db, `lobbies/${id}`), {
           meta,
           config: netConfigFor(opts.mode),
-          players: { [me]: { name: opts.playerName, online: true, joinedAt: Date.now() } },
+          players: {
+            [me]: { name: opts.playerName, online: true, joinedAt: Date.now(), ...profileFields() },
+          },
         });
         setError(null);
         setLobbyId(id);
@@ -584,7 +598,11 @@ export function useLobby() {
             name: playerName,
             online: true,
             joinedAt: Date.now(),
+            ...profileFields(),
           });
+        } else {
+          // por si has cambiado la foto o la frase desde la última vez
+          await update(ref(db, `lobbies/${clean}/players/${me}`), profileFields());
         }
         setError(null);
         setLobbyId(clean);
@@ -637,7 +655,7 @@ export function useLobby() {
       renameSelf(name: string) {
         if (!lobbyId || !uid) return;
         const trimmed = name.trim().slice(0, 16) || 'Anónimo';
-        localStorage.setItem(NICK_KEY, trimmed);
+        setProfile({ name: trimmed });
         void update(ref(getDb(), `lobbies/${lobbyId}/players/${uid}`), { name: trimmed });
       },
 

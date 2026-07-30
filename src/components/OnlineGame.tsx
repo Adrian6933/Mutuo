@@ -24,6 +24,7 @@ import {
 import { roleFor, type Live, type LobbyPlayer } from '../game/online';
 import { setSoundEnabled, sfx } from '../game/sound';
 import type { GameState } from '../game/types';
+import Avatar from './Avatar';
 
 type Props = {
   game: GameState;
@@ -241,16 +242,28 @@ export default function OnlineGame({
   const rows = ['standings', 'end'].includes(s.phase) ? buildRows(s) : [];
   const total = s.tiebreakKeys ? null : totalRounds(s);
 
+  // perfil (foto y frase) de cada playerId, vía la asignación uid → jugador
+  const profileById = new Map<number, { avatar: string | null; bio: string | null }>();
+  if (assign) {
+    for (const [pUid, pid] of Object.entries(assign)) {
+      const lp = players[pUid];
+      if (lp) profileById.set(pid, { avatar: lp.avatar ?? null, bio: lp.bio ?? null });
+    }
+  }
+
   const revealMarkers: DialMarker[] | null =
     allGuessMode && s.phase === 'reveal'
       ? allGuessers(s).map((p) => {
           const angle = s.guesses?.[p.id.toString()] ?? 90;
+          const prof = profileById.get(p.id);
           return {
             angle,
             initials: initialsOf(p.name),
             name: p.name,
             colorIdx: colorIdx(s, `p${p.id}`),
             pts: scoreFor(angle, s.target),
+            avatar: prof?.avatar ?? null,
+            bio: prof?.bio ?? null,
           };
         })
       : null;
@@ -441,7 +454,11 @@ export default function OnlineGame({
               .sort((a, b) => b.pts - a.pts)
               .map((m) => (
                 <li key={m.name} className={`all-results__item c${m.colorIdx}`}>
-                  <span className="all-results__badge">{m.initials}</span>
+                  {m.avatar ? (
+                    <Avatar name={m.name} avatar={m.avatar} size={28} colorIdx={m.colorIdx} />
+                  ) : (
+                    <span className="all-results__badge">{m.initials}</span>
+                  )}
                   <span className="all-results__name">{m.name}</span>
                   <span className={`all-results__pts ${m.pts === 0 ? 'all-results__pts--miss' : ''}`}>
                     {m.pts > 0 ? `+${m.pts}` : '0'}

@@ -3,6 +3,7 @@ import type { LobbyMeta, LobbyPlayer, NetConfig } from '../game/online';
 import type { Mode } from '../game/types';
 import { CategoryPicker, EndConfig, ExtrasConfig } from './SetupShared';
 import { COLOR_COUNT } from '../game/reducer';
+import Avatar from './Avatar';
 
 type Props = {
   lobbyId: string;
@@ -71,6 +72,7 @@ export default function LobbyRoom({
   const renderPlayerRow = (pUid: string, p: LobbyPlayer) => (
     <div key={pUid} className={`lobby-player ${p.online ? '' : 'lobby-player--off'}`}>
       <span className={`presence ${p.online ? 'presence--on' : ''}`} aria-hidden="true" />
+      <Avatar name={p.name} avatar={p.avatar} size={30} colorIdx={(p.team ?? 0) % COLOR_COUNT} />
       {pUid === uid ? (
         <input
           className="input input--nick input--inline"

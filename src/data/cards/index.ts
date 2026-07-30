@@ -13,7 +13,7 @@ import historia from './historia';
 import geografia from './geografia';
 import internet from './internet';
 
-export type CategoryId =
+export type BuiltinCategoryId =
   | 'clasicas'
   | 'futbol'
   | 'comida'
@@ -29,6 +29,11 @@ export type CategoryId =
   | 'geografia'
   | 'internet';
 
+/** Categoría creada por el jugador y guardada en su móvil (`custom:<id>`). */
+export type CustomCategoryId = `custom:${string}`;
+
+export type CategoryId = BuiltinCategoryId | CustomCategoryId;
+
 export type Card = {
   left: string;
   right: string;
@@ -37,7 +42,11 @@ export type Card = {
   topic?: string;
 };
 
-export const CATEGORIES: { id: CategoryId; label: string }[] = [
+export function isCustomCat(id: string): id is CustomCategoryId {
+  return id.startsWith('custom:');
+}
+
+export const CATEGORIES: { id: BuiltinCategoryId; label: string }[] = [
   { id: 'clasicas', label: 'Clásicas' },
   { id: 'futbol', label: 'Fútbol' },
   { id: 'comida', label: 'Comida' },
@@ -54,7 +63,7 @@ export const CATEGORIES: { id: CategoryId; label: string }[] = [
   { id: 'internet', label: 'Internet y memes' },
 ];
 
-const RAW: Record<CategoryId, [string, string][]> = {
+const RAW: Record<BuiltinCategoryId, [string, string][]> = {
   clasicas,
   futbol,
   comida,
@@ -75,9 +84,16 @@ export const CARDS: Card[] = CATEGORIES.flatMap((c) =>
   RAW[c.id].map(([left, right]) => ({ left, right, cat: c.id }))
 );
 
-export function cardsFor(categories: CategoryId[]): Card[] {
-  if (categories.length === 0) return CARDS;
-  const filtered = CARDS.filter((c) => categories.includes(c.cat));
+/** Cartas de un tema por defecto, en el orden en que están escritas. */
+export function cardsOfBuiltin(cat: BuiltinCategoryId): Card[] {
+  return RAW[cat].map(([left, right]) => ({ left, right, cat }));
+}
+
+/** Mazo para las categorías elegidas; `extra` son las cartas de las categorías propias. */
+export function cardsFor(categories: CategoryId[], extra: readonly Card[] = []): Card[] {
+  const pool = extra.length > 0 ? [...CARDS, ...extra] : CARDS;
+  if (categories.length === 0) return pool;
+  const filtered = pool.filter((c) => categories.includes(c.cat));
   return filtered.length > 0 ? filtered : CARDS;
 }
 

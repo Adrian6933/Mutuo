@@ -2,6 +2,8 @@ import { useEffect, useReducer, useRef, useState } from 'react';
 import Dial, { scoreFor, type DialMarker } from './Dial';
 import Menu from './Menu';
 import Online from './Online';
+import ProfileScreen from './ProfileScreen';
+import CardsScreen from './CardsScreen';
 import SetupFfa from './SetupFfa';
 import SetupTeams from './SetupTeams';
 import { CardPicker, CustomCardForm, ClueForm } from './CardPicker';
@@ -37,6 +39,7 @@ import { REVEAL_TEXT, buildRows, winnerText, initialsOf, Stats } from './gameSha
 export default function Game() {
   const [s, dispatch] = useReducer(reducer, initialState);
   const [online, setOnline] = useState(false);
+  const [screen, setScreen] = useState<'profile' | 'cards' | null>(null);
   const [homeConfirm, setHomeConfirm] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [standingsLeft, setStandingsLeft] = useState<number | null>(null);
@@ -141,6 +144,25 @@ export default function Game() {
   };
 
   if (online) return <Online onExit={() => setOnline(false)} />;
+
+  if (screen) {
+    return (
+      <div className="game">
+        <header className="game__header">
+          <button className="logo logo--btn" onClick={() => setScreen(null)} aria-label="Volver al inicio">
+            MUTUO
+          </button>
+        </header>
+        <main className="game__table">
+          {screen === 'profile' ? (
+            <ProfileScreen onBack={() => setScreen(null)} />
+          ) : (
+            <CardsScreen onBack={() => setScreen(null)} />
+          )}
+        </main>
+      </div>
+    );
+  }
 
   const inRound = !['menu', 'setup', 'standings', 'end'].includes(s.phase);
   const dialVisible = s.phase === 'menu' || inRound;
@@ -261,6 +283,8 @@ export default function Game() {
           <Menu
             onMode={(mode) => dispatch({ type: 'CHOOSE_MODE', mode, prefs: loadPrefs(mode) })}
             onOnline={() => setOnline(true)}
+            onProfile={() => setScreen('profile')}
+            onCards={() => setScreen('cards')}
             onContinue={
               saved
                 ? () => {

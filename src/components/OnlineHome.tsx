@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { Mode } from '../game/types';
 import type { PublicLobby } from '../game/online';
-
-const NICK_KEY = 'frecuencia-nick';
+import { MAX_NAME, profileName, setProfile, useProfile } from '../game/profile';
+import Avatar from './Avatar';
 
 type Props = {
   error: string | null;
@@ -13,7 +13,7 @@ type Props = {
 };
 
 export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit }: Props) {
-  const [nick, setNick] = useState('');
+  const profile = useProfile();
   const [tab, setTab] = useState<'join' | 'create'>('join');
   const [lobbyName, setLobbyName] = useState('');
   const [isPublic, setIsPublic] = useState(true);
@@ -21,10 +21,6 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
   const [joinId, setJoinId] = useState('');
   const [joinKey, setJoinKey] = useState('');
   const [lobbies, setLobbies] = useState<PublicLobby[] | null>(null);
-
-  useEffect(() => {
-    setNick(localStorage.getItem(NICK_KEY) ?? '');
-  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -37,26 +33,24 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
     };
   }, [listPublic]);
 
-  const saveNick = (n: string) => {
-    setNick(n);
-    localStorage.setItem(NICK_KEY, n);
-  };
-
-  const name = nick.trim() || 'Anónimo';
+  const name = profileName(profile);
 
   return (
     <section className="panel panel--setup">
       <p className="panel__kicker">Online</p>
       <h2 className="panel__title">Lobbies</h2>
 
-      <input
-        className="input input--nick"
-        value={nick}
-        placeholder="Tu nombre"
-        maxLength={16}
-        onChange={(e) => saveNick(e.target.value)}
-        aria-label="Tu nombre"
-      />
+      <div className="nick-row">
+        <Avatar name={name} avatar={profile.avatar} size={42} colorIdx={0} />
+        <input
+          className="input input--nick"
+          value={profile.name}
+          placeholder="Tu nombre"
+          maxLength={MAX_NAME}
+          onChange={(e) => setProfile({ name: e.target.value })}
+          aria-label="Tu nombre"
+        />
+      </div>
 
 
 

@@ -60,6 +60,10 @@ export type DialMarker = {
   name: string;
   colorIdx: number;
   pts: number;
+  /** foto de perfil (data URL); si falta, se pintan las iniciales */
+  avatar?: string | null;
+  /** frase del perfil, para la burbuja al tocar el marcador */
+  bio?: string | null;
 };
 
 type DialProps = {
@@ -224,10 +228,12 @@ export default function Dial({
 
   const sel = selMarker !== null ? markerSpots[selMarker] : null;
   const selLabel = sel ? `${sel.name} · ${sel.pts > 0 ? `+${sel.pts}` : '0'}` : '';
-  const bubbleW = selLabel.length * 7.4 + 22;
+  const selBio = sel?.bio ? `«${sel.bio.slice(0, 40)}»` : '';
+  const bubbleH = selBio ? 40 : 26;
+  const bubbleW = Math.max(selLabel.length * 7.4, selBio.length * 6.2) + 22;
   const bubbleX = sel ? Math.max(6, Math.min(VBW - 6 - bubbleW, sel.x - bubbleW / 2)) : 0;
-  const bubbleAbove = sel ? sel.y - 26 - 26 > 4 : true;
-  const bubbleY = sel ? (bubbleAbove ? sel.y - 26 - 26 : sel.y + 22) : 0;
+  const bubbleAbove = sel ? sel.y - 26 - bubbleH > 4 : true;
+  const bubbleY = sel ? (bubbleAbove ? sel.y - 26 - bubbleH : sel.y + 22) : 0;
 
   const ticks = [];
   for (let a = 0; a <= 180; a += 6) {
@@ -377,24 +383,59 @@ export default function Dial({
           onClick={() => setSelMarker((cur) => (cur === m.idx ? null : m.idx))}
         >
           <title>{`${m.name} · ${m.pts > 0 ? `+${m.pts}` : '0'}`}</title>
-          <circle
-            cx={m.x.toFixed(2)}
-            cy={m.y.toFixed(2)}
-            r={14}
-            fill="var(--pc)"
-            stroke="var(--paper)"
-            strokeWidth={3}
-          />
-          <text x={m.x.toFixed(2)} y={m.y.toFixed(2)} className="dial-marker__txt">
-            {m.initials}
-          </text>
+          {m.avatar ? (
+            <>
+              <clipPath id={`mk-clip-${m.idx}`}>
+                <circle cx={m.x.toFixed(2)} cy={m.y.toFixed(2)} r={13.5} />
+              </clipPath>
+              <circle
+                cx={m.x.toFixed(2)}
+                cy={m.y.toFixed(2)}
+                r={14}
+                fill="var(--pc)"
+                stroke="var(--pc)"
+                strokeWidth={3}
+              />
+              <image
+                href={m.avatar}
+                x={(m.x - 13.5).toFixed(2)}
+                y={(m.y - 13.5).toFixed(2)}
+                width={27}
+                height={27}
+                clipPath={`url(#mk-clip-${m.idx})`}
+                preserveAspectRatio="xMidYMid slice"
+              />
+              <circle
+                cx={m.x.toFixed(2)}
+                cy={m.y.toFixed(2)}
+                r={14}
+                fill="none"
+                stroke="var(--paper)"
+                strokeWidth={3}
+              />
+            </>
+          ) : (
+            <>
+              <circle
+                cx={m.x.toFixed(2)}
+                cy={m.y.toFixed(2)}
+                r={14}
+                fill="var(--pc)"
+                stroke="var(--paper)"
+                strokeWidth={3}
+              />
+              <text x={m.x.toFixed(2)} y={m.y.toFixed(2)} className="dial-marker__txt">
+                {m.initials}
+              </text>
+            </>
+          )}
         </g>
       ))}
 
       {/* Burbuja con el nombre completo del marcador tocado */}
       {sel && (
         <g className="dial-marker-tip" pointerEvents="none">
-          <rect x={bubbleX} y={bubbleY} width={bubbleW} height={26} rx={13} fill="var(--teal-900)" />
+          <rect x={bubbleX} y={bubbleY} width={bubbleW} height={bubbleH} rx={13} fill="var(--teal-900)" />
           <text
             x={bubbleX + bubbleW / 2}
             y={bubbleY + 13}
@@ -402,6 +443,15 @@ export default function Dial({
           >
             {selLabel}
           </text>
+          {selBio && (
+            <text
+              x={bubbleX + bubbleW / 2}
+              y={bubbleY + 29}
+              className="dial-marker-tip__txt dial-marker-tip__txt--bio"
+            >
+              {selBio}
+            </text>
+          )}
         </g>
       )}
     </svg>

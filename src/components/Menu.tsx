@@ -1,12 +1,17 @@
 import type { Mode } from '../game/types';
+import { profileName, useProfile } from '../game/profile';
+import Avatar from './Avatar';
 
 type MenuProps = {
   onMode: (mode: Mode) => void;
   onOnline: () => void;
+  onProfile: () => void;
+  onCards: () => void;
   onContinue?: () => void;
 };
 
-export default function Menu({ onMode, onOnline, onContinue }: MenuProps) {
+export default function Menu({ onMode, onOnline, onProfile, onCards, onContinue }: MenuProps) {
+  const profile = useProfile();
   return (
     <section className="panel">
       <h1 className="panel__title">¿Estáis en la misma sintonía?</h1>
@@ -41,6 +46,18 @@ export default function Menu({ onMode, onOnline, onContinue }: MenuProps) {
           Continuar partida guardada
         </button>
       )}
+      <div className="menu-links">
+        <button className="menu-link" onClick={onProfile}>
+          <Avatar name={profileName(profile)} avatar={profile.avatar} size={26} colorIdx={0} />
+          <span>Perfil</span>
+        </button>
+        <button className="menu-link" onClick={onCards}>
+          <span className="menu-link__icon" aria-hidden="true">
+            🃏
+          </span>
+          <span>Cartas</span>
+        </button>
+      </div>
     </section>
   );
 }

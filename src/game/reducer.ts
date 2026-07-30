@@ -1,4 +1,5 @@
-import { CATEGORIES, cardsFor, shuffle, type CategoryId } from '../data/cards';
+import { CATEGORIES, cardsFor, shuffle, type Card, type CategoryId } from '../data/cards';
+import { customPoolFor, sanitizeCategories } from './customCats';
 import { scoreFor } from '../components/Dial';
 import type {
   BetSide,
@@ -74,6 +75,11 @@ export const ALL_CATEGORIES: CategoryId[] = CATEGORIES.map((c) => c.id);
 
 export function randomTarget(): number {
   return Math.random() * 180;
+}
+
+/** Mazo completo para las categorías elegidas, incluidas las propias del móvil. */
+export function deckFor(categories: CategoryId[]): Card[] {
+  return cardsFor(categories, customPoolFor(categories));
 }
 
 export const initialState: GameState = {
@@ -413,7 +419,8 @@ function buildFromPrefs(mode: Mode, prefs: ModePrefs | null | undefined): GameSt
   base.nextId = id;
   if (prefs?.endRule) base.endRule = clampEndRule(prefs.endRule);
   if (prefs?.categories && prefs.categories.length > 0) {
-    base.categories = prefs.categories.filter((c) => ALL_CATEGORIES.includes(c));
+    // descarta temas desconocidos y categorías propias que ya no existan en este móvil
+    base.categories = sanitizeCategories(prefs.categories);
     if (base.categories.length === 0) base.categories = ALL_CATEGORIES;
   }
   if (prefs?.options) base.options = { ...DEFAULT_OPTIONS, ...prefs.options };
@@ -607,7 +614,7 @@ export function reducer(s: GameState, a: Action): GameState {
         ...s,
         players,
         teams,
-        deck: shuffle(cardsFor(s.categories)),
+        deck: shuffle(deckFor(s.categories)),
         deckIndex: 0,
         round: 0,
         history: [],
@@ -627,7 +634,7 @@ export function reducer(s: GameState, a: Action): GameState {
       let deck = s.deck;
       let di = s.deckIndex;
       if (di >= deck.length) {
-        deck = shuffle(cardsFor(s.categories));
+        deck = shuffle(deckFor(s.categories));
         di = 0;
       }
       return { ...s, deck, deckIndex: di + 1, card: deck[di]!, target: randomTarget(), phase: 'psychic' };

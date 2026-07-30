@@ -1,6 +1,7 @@
 import type React from 'react';
-import { CATEGORIES, type CategoryId } from '../data/cards';
+import { CATEGORIES, isCustomCat, type CategoryId } from '../data/cards';
 import { ALL_CATEGORIES, MAX_GOAL, MAX_LAPS } from '../game/reducer';
+import { catIdOf, useCustomCats } from '../game/customCats';
 import type { EndRule, Mode, Options } from '../game/types';
 
 type PlayerRowProps = {
@@ -134,13 +135,45 @@ type CategoryPickerProps = {
 };
 
 export function CategoryPicker({ categories, onChange }: CategoryPickerProps) {
-  const allOn = categories.length === ALL_CATEGORIES.length;
-  const toggle = (id: CategoryId) => {
-    const next = categories.includes(id)
-      ? categories.filter((c) => c !== id)
-      : [...categories, id];
-    onChange(next.length === 0 ? [id] : next);
+  const customCats = useCustomCats();
+  const builtinSel: CategoryId[] = categories.filter((c) => !isCustomCat(c));
+  const customSel: CategoryId[] = categories.filter((c) => isCustomCat(c));
+  // "Todas" solo cubre los temas por defecto; las personalizadas van aparte
+  const allOn = builtinSel.length === ALL_CATEGORIES.length;
+  const customAll = customCats.length > 0 && customCats.every((c) => customSel.includes(catIdOf(c)));
+
+  const emit = (builtin: CategoryId[], custom: CategoryId[]) => {
+    const next = [...builtin, ...custom];
+    onChange(next.length === 0 ? [...ALL_CATEGORIES] : next);
   };
+
+  const toggleBuiltin = (id: CategoryId) => {
+    if (allOn) {
+      emit([id], customSel);
+      return;
+    }
+    const next = builtinSel.includes(id)
+      ? builtinSel.filter((c) => c !== id)
+      : [...builtinSel, id];
+    emit(next, customSel);
+  };
+
+  const toggleCustom = (id: CategoryId) => {
+    const next = customSel.includes(id) ? customSel.filter((c) => c !== id) : [...customSel, id];
+    emit(builtinSel, next);
+  };
+
+  const hintParts: string[] = [];
+  if (allOn) hintParts.push('todos los temas del juego');
+  else if (builtinSel.length > 0)
+    hintParts.push(`${builtinSel.length} ${builtinSel.length === 1 ? 'tema del juego' : 'temas del juego'}`);
+  if (customSel.length > 0)
+    hintParts.push(`${customSel.length} ${customSel.length === 1 ? 'categoría tuya' : 'categorías tuyas'}`);
+  const hint =
+    hintParts.length === 0
+      ? 'Cartas de todos los temas del juego.'
+      : `Cartas de ${hintParts.join(' + ')}.`;
+
   return (
     <div className="end-config">
       <p className="panel__kicker">Temas de las cartas</p>
@@ -148,7 +181,7 @@ export function CategoryPicker({ categories, onChange }: CategoryPickerProps) {
         <button
           type="button"
           className={`chip ${allOn ? 'chip--on' : ''}`}
-          onClick={() => onChange([...ALL_CATEGORIES])}
+          onClick={() => emit(allOn ? [] : [...ALL_CATEGORIES], customSel)}
         >
           Todas
         </button>
@@ -156,20 +189,39 @@ export function CategoryPicker({ categories, onChange }: CategoryPickerProps) {
           <button
             key={c.id}
             type="button"
-            className={`chip ${!allOn && categories.includes(c.id) ? 'chip--on' : ''}`}
-            onClick={() => (allOn ? onChange([c.id]) : toggle(c.id))}
+            className={`chip ${!allOn && builtinSel.includes(c.id) ? 'chip--on' : ''}`}
+            onClick={() => toggleBuiltin(c.id)}
           >
             {c.label}
           </button>
         ))}
       </div>
-      <p className="end-config__hint">
-        {allOn
-          ? 'Cartas de todos los temas.'
-          : categories.length === 1
-            ? '1 tema activo.'
-            : `${categories.length} temas activos.`}
-      </p>
+      {customCats.length > 0 && (
+        <>
+          <p className="panel__kicker panel__kicker--sub">Tus categorías</p>
+          <div className="chip-row">
+            <button
+              type="button"
+              className={`chip chip--custom-cat ${customAll ? 'chip--on' : ''}`}
+              onClick={() => emit(builtinSel, customAll ? [] : customCats.map((c) => catIdOf(c)))}
+            >
+              Todas las mías
+            </button>
+            {customCats.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`chip chip--custom-cat ${customSel.includes(catIdOf(c)) ? 'chip--on' : ''}`}
+                onClick={() => toggleCustom(catIdOf(c))}
+              >
+                {c.emoji} {c.name}
+                <small> {c.cards.length}</small>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      <p className="end-config__hint">{hint}</p>
     </div>
   );
 }
