@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react';
 import Avatar from './Avatar';
 import {
+  AVATAR_PRESETS,
   MAX_BIO,
   MAX_NAME,
   fileToAvatar,
+  presetAvatar,
   profileName,
   setProfile,
   useProfile,
@@ -20,7 +22,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
     setError(null);
     setBusy(true);
     try {
-      setProfile({ avatar: await fileToAvatar(file) });
+      setProfile({ avatar: await fileToAvatar(file), preset: null });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No he podido usar esa foto.');
     } finally {
@@ -57,7 +59,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
             <button
               type="button"
               className="btn btn--ghost btn--small"
-              onClick={() => setProfile({ avatar: null })}
+              onClick={() => setProfile({ avatar: null, preset: null })}
             >
               Quitar foto
             </button>
@@ -74,6 +76,28 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
       />
 
       {error && <p className="online-error">{error}</p>}
+
+      <div className="profile-field">
+        <p className="panel__kicker">O elige uno de estos</p>
+        <div className="preset-grid">
+          {AVATAR_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className={`preset-avatar ${profile.preset === p.id ? 'preset-avatar--on' : ''}`}
+              style={{ background: p.color }}
+              onClick={() => {
+                const url = presetAvatar(p.id);
+                if (url) setProfile({ avatar: url, preset: p.id });
+              }}
+              aria-label={`Avatar ${p.id}`}
+              aria-pressed={profile.preset === p.id}
+            >
+              {p.emoji}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="profile-field">
         <label className="panel__kicker" htmlFor="profile-name">

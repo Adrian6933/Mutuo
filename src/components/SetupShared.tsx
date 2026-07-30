@@ -196,30 +196,33 @@ export function CategoryPicker({ categories, onChange }: CategoryPickerProps) {
           </button>
         ))}
       </div>
-      {customCats.length > 0 && (
-        <>
-          <p className="panel__kicker panel__kicker--sub">Tus categorías</p>
-          <div className="chip-row">
+      <p className="panel__kicker panel__kicker--sub">Tus categorías</p>
+      {customCats.length > 0 ? (
+        <div className="chip-row">
+          <button
+            type="button"
+            className={`chip chip--custom-cat ${customAll ? 'chip--on' : ''}`}
+            onClick={() => emit(builtinSel, customAll ? [] : customCats.map((c) => catIdOf(c)))}
+          >
+            Todas las mías
+          </button>
+          {customCats.map((c) => (
             <button
+              key={c.id}
               type="button"
-              className={`chip chip--custom-cat ${customAll ? 'chip--on' : ''}`}
-              onClick={() => emit(builtinSel, customAll ? [] : customCats.map((c) => catIdOf(c)))}
+              className={`chip chip--custom-cat ${customSel.includes(catIdOf(c)) ? 'chip--on' : ''}`}
+              onClick={() => toggleCustom(catIdOf(c))}
             >
-              Todas las mías
+              {c.emoji} {c.name}
+              <small> {c.cards.length}</small>
             </button>
-            {customCats.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`chip chip--custom-cat ${customSel.includes(catIdOf(c)) ? 'chip--on' : ''}`}
-                onClick={() => toggleCustom(catIdOf(c))}
-              >
-                {c.emoji} {c.name}
-                <small> {c.cards.length}</small>
-              </button>
-            ))}
-          </div>
-        </>
+          ))}
+        </div>
+      ) : (
+        <p className="end-config__hint">
+          Todavía no tienes ninguna. Créalas en <b>Menú → 🃏 Cartas → Mis categorías</b> y aparecerán
+          aquí para elegirlas (solas o mezcladas con los temas del juego).
+        </p>
       )}
       <p className="end-config__hint">{hint}</p>
     </div>
@@ -268,7 +271,8 @@ export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
   return (
     <div className="end-config extras">
       <p className="panel__kicker">Extras</p>
-      {mode === 'ffa' && (
+      {/* "Cooperativo" y "Presentador" no son ajustes: se activan al elegir el modo */}
+      {mode === 'ffa' && !options.fixedPsychic && !options.coop && (
         <ToggleRow
           label="Todos adivinan a la vez"
           hint={

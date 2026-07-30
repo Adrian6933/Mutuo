@@ -64,6 +64,8 @@ export type DialMarker = {
   avatar?: string | null;
   /** frase del perfil, para la burbuja al tocar el marcador */
   bio?: string | null;
+  /** id del jugador, para poder localizar el tuyo entre muchos */
+  playerId?: number;
 };
 
 type DialProps = {

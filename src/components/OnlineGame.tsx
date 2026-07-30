@@ -18,6 +18,7 @@ import {
   circularDelta,
   isGameOver,
   leaders,
+  competitorCount,
   totalRounds,
   type Action,
 } from '../game/reducer';
@@ -251,7 +252,7 @@ export default function OnlineGame({
     }
   }
 
-  const revealMarkers: DialMarker[] | null =
+  const allMarkers: DialMarker[] | null =
     allGuessMode && s.phase === 'reveal'
       ? allGuessers(s).map((p) => {
           const angle = s.guesses?.[p.id.toString()] ?? 90;
@@ -264,9 +265,25 @@ export default function OnlineGame({
             pts: scoreFor(angle, s.target),
             avatar: prof?.avatar ?? null,
             bio: prof?.bio ?? null,
+            playerId: p.id,
           };
         })
       : null;
+
+  // con mucha gente (directos) el dial y la lista se saturan: se enseñan los mejores,
+  // y el tuyo siempre aunque no entre en el corte
+  const MAX_MARKERS = 16;
+  const MAX_RESULTS = 30;
+  const ranked = allMarkers ? [...allMarkers].sort((a, b) => b.pts - a.pts) : null;
+  const mineIn = (list: DialMarker[]) =>
+    role.playerId !== null && allMarkers && !list.some((m) => m.playerId === role.playerId)
+      ? [...list, ...allMarkers.filter((m) => m.playerId === role.playerId)]
+      : list;
+  const revealMarkers = ranked ? mineIn(ranked.slice(0, MAX_MARKERS)) : null;
+  const resultRows = ranked ? mineIn(ranked.slice(0, MAX_RESULTS)) : null;
+  const hiddenCount = ranked && resultRows ? ranked.length - resultRows.length : 0;
+  const hitCount = ranked ? ranked.filter((m) => m.pts > 0).length : 0;
+  const coopGain = s.lastGains.find((g) => g.key === 'coop')?.pts ?? 0;
   const psyGain = revealMarkers
     ? s.lastGains.find((g) => g.key === `p${ffaPsychic(s).id}`)?.pts ?? 0
     : 0;
@@ -439,7 +456,24 @@ export default function OnlineGame({
             {REVEAL_TEXT[s.lastPts]}
           </p>
           <p className="panel__text">
-            {s.tiebreakKeys ? (
+            {s.options.coop ? (
+              coopGain > 0 ? (
+                <>
+                  Habéis sumado <b>+{coopGain}</b> al marcador común.
+                </>
+              ) : (
+                'Ronda en blanco: el marcador común se queda igual.'
+              )
+            ) : s.options.fixedPsychic ? (
+              hitCount > 0 ? (
+                <>
+                  <b>{hitCount}</b> {hitCount === 1 ? 'ha caído' : 'han caído'} en la zona de{' '}
+                  {psy}.
+                </>
+              ) : (
+                `Nadie ha caído en la zona de ${psy}.`
+              )
+            ) : s.tiebreakKeys ? (
               'En muerte súbita solo puntúan los adivinadores.'
             ) : psyGain > 0 ? (
               <>
@@ -450,22 +484,28 @@ export default function OnlineGame({
             )}
           </p>
           <ul className="all-results">
-            {[...revealMarkers]
-              .sort((a, b) => b.pts - a.pts)
-              .map((m) => (
-                <li key={m.name} className={`all-results__item c${m.colorIdx}`}>
-                  {m.avatar ? (
-                    <Avatar name={m.name} avatar={m.avatar} size={28} colorIdx={m.colorIdx} />
-                  ) : (
-                    <span className="all-results__badge">{m.initials}</span>
-                  )}
-                  <span className="all-results__name">{m.name}</span>
-                  <span className={`all-results__pts ${m.pts === 0 ? 'all-results__pts--miss' : ''}`}>
-                    {m.pts > 0 ? `+${m.pts}` : '0'}
-                  </span>
-                </li>
-              ))}
+            {(resultRows ?? []).map((m) => (
+              <li
+                key={m.playerId ?? m.name}
+                className={`all-results__item c${m.colorIdx} ${
+                  m.playerId === role.playerId ? 'all-results__item--me' : ''
+                }`}
+              >
+                {m.avatar ? (
+                  <Avatar name={m.name} avatar={m.avatar} size={28} colorIdx={m.colorIdx} />
+                ) : (
+                  <span className="all-results__badge">{m.initials}</span>
+                )}
+                <span className="all-results__name">{m.name}</span>
+                <span className={`all-results__pts ${m.pts === 0 ? 'all-results__pts--miss' : ''}`}>
+                  {m.pts > 0 ? `+${m.pts}` : '0'}
+                </span>
+              </li>
+            ))}
           </ul>
+          {hiddenCount > 0 && (
+            <p className="end-config__hint">… y {hiddenCount} más.</p>
+          )}
           <SkipVoteBar
             isHost={isHost}
             hasVoted={hasVotedToSkip}
@@ -577,7 +617,7 @@ export default function OnlineGame({
             advanceLabel={
               s.tiebreakKeys
                 ? 'Continuar'
-                : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak || (s.mode === 'ffa' ? s.players.length : s.teams.length) <= 2)
+                : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak || competitorCount(s) <= 2)
                   ? 'Resultado final'
                   : isGameOver(s)
                     ? '⚡ ¡Desempate!'
@@ -595,7 +635,7 @@ export default function OnlineGame({
       {s.phase === 'end' && (
         <section className="panel panel--setup">
           <p className="panel__kicker">Fin de la partida</p>
-          <h2 className="panel__title">{winnerText(rows)}</h2>
+          <h2 className="panel__title">{winnerText(rows, s.options.coop)}</h2>
           <ScoreTable rows={rows} final />
           {s.options.stats && <Stats s={s} />}
           {isHost ? (

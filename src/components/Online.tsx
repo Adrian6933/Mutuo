@@ -3,9 +3,11 @@ import { COLOR_COUNT } from '../game/reducer';
 import OnlineHome from './OnlineHome';
 import LobbyRoom from './LobbyRoom';
 import OnlineGame from './OnlineGame';
+import LobbyNotices, { useLobbyNotices } from './LobbyNotices';
 
 export default function Online({ onExit }: { onExit: () => void }) {
   const lobby = useLobby();
+  const notices = useLobbyNotices(lobby.players, lobby.meta, lobby.uid);
 
   const exit = () => {
     lobby.leave();
@@ -34,6 +36,8 @@ export default function Online({ onExit }: { onExit: () => void }) {
           </div>
         )}
       </header>
+
+      {lobby.lobbyId && <LobbyNotices notices={notices} />}
 
       <main className="game__table">
         {!lobby.ready && (
@@ -81,6 +85,7 @@ export default function Online({ onExit }: { onExit: () => void }) {
             uid={lobby.uid}
             isHost={lobby.isHost}
             onSetConfig={lobby.setConfig}
+            onSetMaxPlayers={lobby.setMaxPlayers}
             onAssignTeam={lobby.assignTeam}
             onRename={lobby.renameSelf}
             onKick={lobby.kickPlayer}

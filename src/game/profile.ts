@@ -7,8 +7,30 @@ export type Profile = {
   name: string;
   /** foto recortada a cuadrado y comprimida (data URL), o null si usa iniciales */
   avatar: string | null;
+  /** id del avatar predeterminado elegido, o null si es foto propia */
+  preset: string | null;
   bio: string;
 };
+
+/** Avatares de serie: emoji sobre color, para quien no quiera poner foto. */
+export const AVATAR_PRESETS: { id: string; emoji: string; color: string }[] = [
+  { id: 'zorro', emoji: '🦊', color: '#e4572e' },
+  { id: 'pulpo', emoji: '🐙', color: '#17635c' },
+  { id: 'rana', emoji: '🐸', color: '#4f7f4a' },
+  { id: 'gato', emoji: '🐱', color: '#c47f16' },
+  { id: 'panda', emoji: '🐼', color: '#15343b' },
+  { id: 'unicornio', emoji: '🦄', color: '#9c2b1e' },
+  { id: 'alien', emoji: '👽', color: '#17635c' },
+  { id: 'robot', emoji: '🤖', color: '#0e4a47' },
+  { id: 'fantasma', emoji: '👻', color: '#4f7f4a' },
+  { id: 'fuego', emoji: '🔥', color: '#e4572e' },
+  { id: 'rayo', emoji: '⚡', color: '#c47f16' },
+  { id: 'corona', emoji: '👑', color: '#9c2b1e' },
+  { id: 'cerebro', emoji: '🧠', color: '#d64533' },
+  { id: 'cohete', emoji: '🚀', color: '#082f2d' },
+  { id: 'aguacate', emoji: '🥑', color: '#4f7f4a' },
+  { id: 'diana', emoji: '🎯', color: '#e4572e' },
+];
 
 const KEY = 'frecuencia-profile-v1';
 /** clave antigua, solo con el nombre: se migra la primera vez */
@@ -19,7 +41,7 @@ export const MAX_BIO = 60;
 /** lado de la foto guardada: suficiente para el dial sin inflar la lobby */
 const AVATAR_SIZE = 160;
 
-export const EMPTY_PROFILE: Profile = { name: '', avatar: null, bio: '' };
+export const EMPTY_PROFILE: Profile = { name: '', avatar: null, preset: null, bio: '' };
 
 let cache: Profile | null = null;
 const listeners = new Set<() => void>();
@@ -37,6 +59,7 @@ function read(): Profile {
       return {
         name: typeof p.name === 'string' ? p.name.slice(0, MAX_NAME) : '',
         avatar: typeof p.avatar === 'string' && p.avatar.startsWith('data:') ? p.avatar : null,
+        preset: typeof p.preset === 'string' ? p.preset : null,
         bio: typeof p.bio === 'string' ? p.bio.slice(0, MAX_BIO) : '',
       };
     }
@@ -96,6 +119,24 @@ export function initialsOf(name: string): string {
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
+}
+
+/** Pinta un avatar de serie (emoji sobre color) y lo devuelve como data URL. */
+export function presetAvatar(id: string, size = AVATAR_SIZE): string | null {
+  const preset = AVATAR_PRESETS.find((p) => p.id === id);
+  if (!preset || typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = preset.color;
+  ctx.fillRect(0, 0, size, size);
+  ctx.font = `${Math.round(size * 0.6)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(preset.emoji, size / 2, size * 0.54);
+  return canvas.toDataURL('image/jpeg', 0.85);
 }
 
 /** Recorta la imagen a un cuadrado centrado y la comprime a data URL. */

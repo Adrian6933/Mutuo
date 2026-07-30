@@ -15,8 +15,17 @@ export default function SetupFfa({ s, dispatch }: Props) {
 
   return (
     <section className="panel panel--setup">
-      <p className="panel__kicker">Todos contra todos</p>
+      <p className="panel__kicker">
+        {s.options.fixedPsychic ? '🎤 Presentador' : 'Todos contra todos'}
+      </p>
       <h2 className="panel__title">¿Quién juega?</h2>
+      {s.options.fixedPsychic && (
+        <p className="end-config__hint">
+          Presenta <b>{s.players[0]?.name.trim() || 'Jugador 1'}</b> (el primero de la lista): da
+          todas las pistas, no puntúa y no sale en la clasificación. Arrastra a otro arriba para
+          cambiarlo.
+        </p>
+      )}
 
       <div className="player-list">
         {s.players.map((p, i) => (

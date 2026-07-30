@@ -28,6 +28,7 @@ import {
   totalRounds,
   isGameOver,
   leaders,
+  competitorCount,
   COLOR_COUNT,
 } from '../game/reducer';
 import { loadPrefs, savePrefs, prefsFromState, loadState, saveState, clearState } from '../game/storage';
@@ -281,7 +282,15 @@ export default function Game() {
 
         {s.phase === 'menu' && (
           <Menu
-            onMode={(mode) => dispatch({ type: 'CHOOSE_MODE', mode, prefs: loadPrefs(mode) })}
+            onMode={(mode, variant) =>
+              dispatch({
+                type: 'CHOOSE_MODE',
+                mode,
+                prefs: loadPrefs(mode),
+                presenter: !!variant?.presenter,
+                coop: !!variant?.coop,
+              })
+            }
             onOnline={() => setOnline(true)}
             onProfile={() => setScreen('profile')}
             onCards={() => setScreen('cards')}
@@ -414,7 +423,21 @@ export default function Game() {
               {REVEAL_TEXT[s.lastPts]}
             </p>
             <p className="panel__text">
-              {s.tiebreakKeys ? (
+              {s.options.coop ? (
+                (() => {
+                  const won = s.lastGains.find((g) => g.key === 'coop')?.pts ?? 0;
+                  return won > 0
+                    ? `Habéis sumado +${won} al marcador común.`
+                    : 'Ronda en blanco: el marcador común se queda igual.';
+                })()
+              ) : s.options.fixedPsychic ? (
+                (() => {
+                  const hits = markers.filter((m) => m.pts > 0).length;
+                  return hits > 0
+                    ? `${hits} ${hits === 1 ? 'ha caído' : 'han caído'} en la zona de ${psychicName(s)}.`
+                    : `Nadie ha caído en la zona de ${psychicName(s)}.`;
+                })()
+              ) : s.tiebreakKeys ? (
                 'En muerte súbita solo puntúan los adivinadores.'
               ) : psyGain > 0 ? (
                 <>
@@ -520,7 +543,7 @@ export default function Game() {
             <button className="btn btn--primary" onClick={() => dispatch({ type: 'NEXT_ROUND' })}>
               {s.tiebreakKeys
                 ? 'Continuar'
-                : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak || (s.mode === 'teams' ? s.teams.length : s.players.length) <= 2)
+                : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak || competitorCount(s) <= 2)
                   ? 'Resultado final'
                   : isGameOver(s)
                     ? '⚡ ¡Desempate!'
@@ -535,7 +558,7 @@ export default function Game() {
         {s.phase === 'end' && (
           <section className="panel panel--setup">
             <p className="panel__kicker">Fin de la partida</p>
-            <h2 className="panel__title">{winnerText(rows)}</h2>
+            <h2 className="panel__title">{winnerText(rows, s.options.coop)}</h2>
             <ScoreTable rows={rows} final />
             {s.options.stats && <Stats s={s} />}
             <div className="btn-row">

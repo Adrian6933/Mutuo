@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react';
 import type { Mode } from '../game/types';
 import type { PublicLobby } from '../game/online';
+import MaxPlayersPicker from './MaxPlayers';
 import { MAX_NAME, profileName, setProfile, useProfile } from '../game/profile';
 import Avatar from './Avatar';
 
 type Props = {
   error: string | null;
-  onCreate: (opts: { lobbyName: string; playerName: string; isPublic: boolean; mode: Mode }) => void;
+  onCreate: (opts: {
+    lobbyName: string;
+    playerName: string;
+    isPublic: boolean;
+    mode: Mode;
+    maxPlayers: number | null;
+  }) => void;
   onJoin: (id: string, key: string, playerName: string) => void;
   listPublic: () => Promise<PublicLobby[]>;
   onExit: () => void;
@@ -18,6 +25,7 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
   const [lobbyName, setLobbyName] = useState('');
   const [isPublic, setIsPublic] = useState(true);
   const [mode, setMode] = useState<Mode>('ffa');
+  const [maxPlayers, setMaxPlayers] = useState<number | null>(null);
   const [joinId, setJoinId] = useState('');
   const [joinKey, setJoinKey] = useState('');
   const [lobbies, setLobbies] = useState<PublicLobby[] | null>(null);
@@ -78,15 +86,46 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
             {lobbies !== null && lobbies.length === 0 && (
               <p className="end-config__hint">No hay lobbies públicas ahora mismo. ¡Crea una!</p>
             )}
-            {lobbies?.map((l) => (
-              <button key={l.id} className="lobby-item" onClick={() => onJoin(l.id, '', name)}>
-                <span className="lobby-item__name">{l.name}</span>
-                <span className="lobby-item__info">
-                  {l.mode === 'ffa' ? 'Todos contra todos' : 'Equipos'} · {l.players}{' '}
-                  {l.players === 1 ? 'jugador' : 'jugadores'} · {l.id}
-                </span>
-              </button>
-            ))}
+            {lobbies?.map((l) => {
+              const full = l.maxPlayers !== null && l.players >= l.maxPlayers;
+              return (
+                <button
+                  key={l.id}
+                  className={`lobby-item ${full ? 'lobby-item--full' : ''}`}
+                  onClick={() => onJoin(l.id, '', name)}
+                  disabled={full}
+                >
+                  <span className="lobby-item__name">{l.name}</span>
+                  <span className="lobby-item__info">
+                    {l.mode === 'ffa' ? 'Todos contra todos' : 'Equipos'} · {l.players}
+                    {l.maxPlayers !== null ? `/${l.maxPlayers}` : ''}{' '}
+                    {l.players === 1 && l.maxPlayers === null ? 'jugador' : 'jugadores'} · {l.id}
+                    {full ? ' · llena' : ''}
+                  </span>
+                  {l.faces.length > 0 && (
+                    <span className="lobby-item__faces">
+                      {l.faces.map((f, i) => (
+                        <Avatar
+                          key={`${f.name}-${i}`}
+                          name={f.name}
+                          avatar={f.avatar}
+                          size={24}
+                          colorIdx={i % 6}
+                        />
+                      ))}
+                      {l.players > l.faces.length && (
+                        <span
+                          className="lobby-item__more"
+                          title={`y ${l.players - l.faces.length} más`}
+                        >
+                          …
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
           <form
             className="join-form"
@@ -125,7 +164,7 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
           className="join-form"
           onSubmit={(e) => {
             e.preventDefault();
-            onCreate({ lobbyName: lobbyName.trim(), playerName: name, isPublic, mode });
+            onCreate({ lobbyName: lobbyName.trim(), playerName: name, isPublic, mode, maxPlayers });
           }}
         >
           <input
@@ -168,10 +207,16 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
               Por equipos
             </button>
           </div>
+          <MaxPlayersPicker value={maxPlayers} onChange={setMaxPlayers} />
           <p className="end-config__hint">
             {isPublic
               ? 'Aparecerá en la lista y cualquiera podrá unirse.'
               : 'Solo se podrá entrar con el ID y la clave de 4 dígitos.'}
+            {maxPlayers !== null ? ` Como mucho ${maxPlayers} jugadores a la vez.` : ''}
+          </p>
+          <p className="end-config__hint">
+            Los temas (incluidas <b>tus categorías</b>), el fin de partida y los extras se eligen
+            dentro de la lobby, antes de empezar.
           </p>
           <button className="btn btn--primary" type="submit">
             Crear lobby

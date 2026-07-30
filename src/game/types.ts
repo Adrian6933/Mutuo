@@ -11,6 +11,10 @@ export type EndRule =
 export type Options = {
   /** en "ffa": todos adivinan (a la vez online, por turnos en local) en vez de solo el siguiente */
   allGuess: boolean;
+  /** modo presentador: el psíquico no rota, siempre da pistas el mismo y no puntúa */
+  fixedPsychic: boolean;
+  /** modo cooperativo: no hay ganador individual, todo suma a un marcador común */
+  coop: boolean;
   rivalBet: boolean;
   timerSecs: number;
   /** segundos para pasar de los resultados a la clasificación; 0 = deshabilitado */
@@ -97,6 +101,8 @@ export type GameState = {
   guesses: Record<string, number> | null;
   /** índice del adivinador al que le toca dentro de la ronda */
   guesserIdx: number;
+  /** en modo presentador: id del jugador que siempre hace de psíquico */
+  psychicId: number | null;
   bet: BetSide | null;
   bets: Record<string, BetSide> | null;
   betWon: boolean;

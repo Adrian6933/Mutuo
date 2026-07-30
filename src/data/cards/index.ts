@@ -63,7 +63,10 @@ export const CATEGORIES: { id: BuiltinCategoryId; label: string }[] = [
   { id: 'internet', label: 'Internet y memes' },
 ];
 
-const RAW: Record<BuiltinCategoryId, [string, string][]> = {
+/** carta de un tema: extremo izquierdo, extremo derecho y contexto opcional */
+export type RawCard = [string, string, string?];
+
+const RAW: Record<BuiltinCategoryId, RawCard[]> = {
   clasicas,
   futbol,
   comida,
@@ -81,12 +84,17 @@ const RAW: Record<BuiltinCategoryId, [string, string][]> = {
 };
 
 export const CARDS: Card[] = CATEGORIES.flatMap((c) =>
-  RAW[c.id].map(([left, right]) => ({ left, right, cat: c.id }))
+  RAW[c.id].map(([left, right, topic]) => ({ left, right, cat: c.id, ...(topic ? { topic } : {}) }))
 );
 
 /** Cartas de un tema por defecto, en el orden en que están escritas. */
 export function cardsOfBuiltin(cat: BuiltinCategoryId): Card[] {
-  return RAW[cat].map(([left, right]) => ({ left, right, cat }));
+  return RAW[cat].map(([left, right, topic]) => ({
+    left,
+    right,
+    cat,
+    ...(topic ? { topic } : {}),
+  }));
 }
 
 /** Mazo para las categorías elegidas; `extra` son las cartas de las categorías propias. */

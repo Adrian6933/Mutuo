@@ -48,6 +48,8 @@ export type LobbyMeta = {
   hostUid: string;
   status: LobbyStatus;
   createdAt: number;
+  /** tope de jugadores conectados, o null/ausente si no hay límite */
+  maxPlayers?: number | null;
 };
 
 export type LobbyPlayer = {
@@ -73,7 +75,21 @@ export type NetConfig = {
 
 export type Live = { needle?: number; timerEnd?: number; skipVotes?: Record<string, boolean> };
 
-export type PublicLobby = { id: string; name: string; players: number; mode: Mode };
+/** cara visible de un jugador en la lista de lobbies */
+export type LobbyFace = { name: string; avatar: string | null };
+
+export type PublicLobby = {
+  id: string;
+  name: string;
+  players: number;
+  mode: Mode;
+  maxPlayers: number | null;
+  /** primeras caras conectadas, para enseñarlas en la lista */
+  faces: LobbyFace[];
+};
+
+/** caras que se enseñan por lobby en la lista; a partir de ahí, puntos suspensivos */
+export const MAX_FACES = 5;
 
 export type Role = {
   playerId: number | null;
@@ -114,6 +130,7 @@ function normalizeGame(raw: Partial<GameState> | null): GameState | null {
     card: raw.card ?? null,
     bet: raw.bet ?? null,
     bets: raw.bets ?? null,
+    psychicId: raw.psychicId ?? null,
   };
 }
 
@@ -314,6 +331,19 @@ export function useLobby() {
     });
     return () => off();
   }, [lobbyId, uid]);
+
+  /* si soy el único dentro, la lobby se borra sola al cerrar la pestaña:
+   * así no quedan lobbies vacías en la lista. En cuanto entra alguien más, se cancela. */
+  useEffect(() => {
+    if (!lobbyId || !uid || !isHost) return;
+    const lobbyRef = ref(getDb(), `lobbies/${lobbyId}`);
+    const others = Object.entries(players).filter(([pUid, p]) => pUid !== uid && p.online).length;
+    if (others === 0) void onDisconnect(lobbyRef).remove();
+    else void onDisconnect(lobbyRef).cancel();
+    return () => {
+      void onDisconnect(lobbyRef).cancel();
+    };
+  }, [lobbyId, uid, isHost, players]);
 
   /* detecta si nos han expulsado de la lobby (desaparecemos de players) */
   const wasMember = useRef(false);
@@ -551,7 +581,13 @@ export function useLobby() {
     };
 
     return {
-      async createLobby(opts: { lobbyName: string; playerName: string; isPublic: boolean; mode: Mode }) {
+      async createLobby(opts: {
+        lobbyName: string;
+        playerName: string;
+        isPublic: boolean;
+        mode: Mode;
+        maxPlayers?: number | null;
+      }) {
         const me = requireUid();
         const db = getDb();
         const id = newLobbyId();
@@ -562,6 +598,7 @@ export function useLobby() {
           hostUid: me,
           status: 'lobby',
           createdAt: Date.now(),
+          maxPlayers: opts.maxPlayers ?? null,
         };
         await set(ref(db, `lobbies/${id}`), {
           meta,
@@ -588,9 +625,16 @@ export function useLobby() {
           setError('Clave incorrecta.');
           return;
         }
-        const already = (await get(ref(db, `lobbies/${clean}/players/${me}`))).exists();
+        const roster = ((await get(ref(db, `lobbies/${clean}/players`))).val() ??
+          {}) as Record<string, LobbyPlayer>;
+        const already = Boolean(roster[me]);
         if (m.status === 'playing' && !already) {
           setError('Esa partida ya ha empezado.');
+          return;
+        }
+        const connected = Object.values(roster).filter((p) => p.online).length;
+        if (!already && m.maxPlayers && connected >= m.maxPlayers) {
+          setError(`La lobby está llena (${connected}/${m.maxPlayers}).`);
           return;
         }
         if (!already) {
@@ -635,9 +679,12 @@ export function useLobby() {
 
       setConfig(patch: Partial<NetConfig>) {
         if (!lobbyId || !configRef.current) return;
-        // al cambiar de modo, recupera los ajustes guardados de ese modo en vez de arrastrar los del anterior
+        // al cambiar de modo, recupera los ajustes guardados de ese modo en vez de arrastrar los del
+        // anterior, pero lo que venga explícito en el patch manda (p. ej. activar presentador)
         const finalPatch: Partial<NetConfig> =
-          patch.mode && patch.mode !== configRef.current.mode ? netConfigFor(patch.mode) : patch;
+          patch.mode && patch.mode !== configRef.current.mode
+            ? { ...netConfigFor(patch.mode), ...patch }
+            : patch;
         void update(ref(getDb(), `lobbies/${lobbyId}/config`), finalPatch);
         const merged: NetConfig = { ...configRef.current, ...finalPatch };
         savePrefs(merged.mode, {
@@ -645,6 +692,12 @@ export function useLobby() {
           categories: merged.categories,
           options: merged.options,
         });
+      },
+
+      setMaxPlayers(max: number | null) {
+        const id = lobbyId;
+        if (!id || metaRef.current?.hostUid !== uid) return;
+        void set(ref(getDb(), `lobbies/${id}/meta/maxPlayers`), max);
       },
 
       assignTeam(playerUid: string, team: number) {
@@ -738,6 +791,10 @@ export function useLobby() {
             return { id: i + 1, name: p.name, score: 0 };
           });
           base.nextId = entries.length + 1;
+          // modo presentador: presenta el anfitrión, que es quien lleva el directo
+          if (conf.options.fixedPsychic) {
+            base.psychicId = assignMap[me] ?? base.players[0]?.id ?? null;
+          }
         } else {
           const groups = new Map<number, [string, LobbyPlayer][]>();
           for (const e of entries) {
@@ -823,11 +880,20 @@ export function useLobby() {
             config?: NetConfig;
           };
           if (v.meta?.status === 'lobby' && v.meta.createdAt > dayAgo) {
+            const connected = Object.values(v.players ?? {})
+              .filter((p) => p.online)
+              .sort((a, b) => a.joinedAt - b.joinedAt);
+            // lobby fantasma: se creó y se fueron todos, no tiene sentido enseñarla
+            if (connected.length === 0) return;
             out.push({
               id: child.key!,
               name: v.meta.name,
-              players: Object.values(v.players ?? {}).filter((p) => p.online).length,
+              players: connected.length,
               mode: v.config?.mode ?? 'ffa',
+              maxPlayers: v.meta.maxPlayers ?? null,
+              faces: connected
+                .slice(0, MAX_FACES)
+                .map((p) => ({ name: p.name, avatar: p.avatar ?? null })),
             });
           }
         });

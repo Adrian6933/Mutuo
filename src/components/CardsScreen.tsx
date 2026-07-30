@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { CATEGORIES, cardsOfBuiltin, type BuiltinCategoryId } from '../data/cards';
+import { CARDS, CATEGORIES, cardsOfBuiltin, type BuiltinCategoryId } from '../data/cards';
 import {
   EMOJIS,
   MAX_NAME,
@@ -44,18 +44,29 @@ function CardList({ cards }: { cards: { left: string; right: string; topic?: str
 
 /* ---- pestaña de temas por defecto ---- */
 
+const MAX_SHOWN = 300;
+
 function BuiltinTab() {
-  const [cat, setCat] = useState<BuiltinCategoryId>('clasicas');
+  const [cat, setCat] = useState<BuiltinCategoryId | 'all'>('all');
   const [q, setQ] = useState('');
-  const cards = useMemo(() => cardsOfBuiltin(cat), [cat]);
+  const cards = useMemo(() => (cat === 'all' ? CARDS : cardsOfBuiltin(cat)), [cat]);
   const needle = q.trim().toLowerCase();
-  const shown = needle
+  const found = needle
     ? cards.filter((c) => `${c.left} ${c.right}`.toLowerCase().includes(needle))
     : cards;
+  const shown = found.slice(0, MAX_SHOWN);
+  const where = cat === 'all' ? 'todos los temas' : CATEGORIES.find((c) => c.id === cat)!.label;
 
   return (
     <>
       <div className="chip-row">
+        <button
+          type="button"
+          className={`chip ${cat === 'all' ? 'chip--on' : ''}`}
+          onClick={() => setCat('all')}
+        >
+          Todos ({CARDS.length})
+        </button>
         {CATEGORIES.map((c) => (
           <button
             key={c.id}
@@ -70,13 +81,14 @@ function BuiltinTab() {
       <input
         className="input"
         value={q}
-        placeholder="Buscar en este tema…"
+        placeholder={cat === 'all' ? 'Buscar en todas las cartas…' : 'Buscar en este tema…'}
         onChange={(e) => setQ(e.target.value)}
         aria-label="Buscar cartas"
       />
       <p className="end-config__hint">
-        {shown.length} {shown.length === 1 ? 'carta' : 'cartas'}
-        {needle ? ` de ${cards.length}` : ''} en {CATEGORIES.find((c) => c.id === cat)!.label}.
+        {found.length} {found.length === 1 ? 'carta' : 'cartas'}
+        {needle ? ` de ${cards.length}` : ''} en {where}
+        {found.length > MAX_SHOWN ? ` · se muestran las ${MAX_SHOWN} primeras` : ''}.
       </p>
       <CardList cards={shown} />
     </>
@@ -91,6 +103,7 @@ function CatEditor({ cat, onBack }: { cat: CustomCategory; onBack: () => void })
   const [topic, setTopic] = useState('');
   const [confirmDel, setConfirmDel] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editIdx, setEditIdx] = useState<number | null>(null);
 
   const addCard = () => {
     const l = left.trim();
@@ -107,6 +120,19 @@ function CatEditor({ cat, onBack }: { cat: CustomCategory; onBack: () => void })
 
   const removeCard = (i: number) => {
     updateCat(cat.id, { cards: cat.cards.filter((_, j) => j !== i) });
+    setEditIdx(null);
+  };
+
+  const patchCard = (i: number, patch: Partial<{ left: string; right: string; topic: string }>) => {
+    updateCat(cat.id, {
+      cards: cat.cards.map((c, j) => {
+        if (j !== i) return c;
+        const next = { ...c, ...patch };
+        // el tema vacío se guarda como ausente, igual que al crear la carta
+        if (!next.topic?.trim()) delete next.topic;
+        return next;
+      }),
+    });
   };
 
   const copyJson = () => {
@@ -190,26 +216,67 @@ function CatEditor({ cat, onBack }: { cat: CustomCategory; onBack: () => void })
       </p>
 
       <ul className="card-list">
-        {cat.cards.map((c, i) => (
-          <li key={`${c.left}-${i}`} className="card-list__item card-list__item--editable">
-            <span className="card-list__body">
-              {c.topic && <span className="card-list__topic">{c.topic}</span>}
-              <span className="card-list__row">
-                <span className="card-list__side">{c.left}</span>
-                <span className="card-list__vs">···</span>
-                <span className="card-list__side card-list__side--right">{c.right}</span>
+        {cat.cards.map((c, i) =>
+          editIdx === i ? (
+            <li key={`edit-${i}`} className="card-list__item card-list__item--editing">
+              <div className="new-card-form__row">
+                <input
+                  className="input"
+                  value={c.left}
+                  maxLength={MAX_SIDE}
+                  onChange={(e) => patchCard(i, { left: e.target.value })}
+                  aria-label="Extremo izquierdo"
+                />
+                <span className="new-card-form__vs">···</span>
+                <input
+                  className="input"
+                  value={c.right}
+                  maxLength={MAX_SIDE}
+                  onChange={(e) => patchCard(i, { right: e.target.value })}
+                  aria-label="Extremo derecho"
+                />
+              </div>
+              <input
+                className="input"
+                value={c.topic ?? ''}
+                placeholder="Tema (opcional)"
+                maxLength={MAX_TOPIC}
+                onChange={(e) => patchCard(i, { topic: e.target.value })}
+                aria-label="Tema de la carta"
+              />
+              <button className="btn btn--primary btn--small" onClick={() => setEditIdx(null)}>
+                Listo
+              </button>
+            </li>
+          ) : (
+            <li key={`${c.left}-${i}`} className="card-list__item card-list__item--editable">
+              <span className="card-list__body">
+                {c.topic && <span className="card-list__topic">{c.topic}</span>}
+                <span className="card-list__row">
+                  <span className="card-list__side">{c.left}</span>
+                  <span className="card-list__vs">···</span>
+                  <span className="card-list__side card-list__side--right">{c.right}</span>
+                </span>
               </span>
-            </span>
-            <button
-              className="icon-btn"
-              type="button"
-              onClick={() => removeCard(i)}
-              aria-label={`Borrar ${c.left} / ${c.right}`}
-            >
-              ✕
-            </button>
-          </li>
-        ))}
+              <button
+                className="icon-btn"
+                type="button"
+                onClick={() => setEditIdx(i)}
+                aria-label={`Editar ${c.left} / ${c.right}`}
+              >
+                ✎
+              </button>
+              <button
+                className="icon-btn"
+                type="button"
+                onClick={() => removeCard(i)}
+                aria-label={`Borrar ${c.left} / ${c.right}`}
+              >
+                ✕
+              </button>
+            </li>
+          )
+        )}
       </ul>
 
       <div className="btn-row">

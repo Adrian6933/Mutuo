@@ -1,5 +1,5 @@
 import type { GameState } from '../game/types';
-import { colorIdx } from '../game/reducer';
+import { colorIdx, presenterId } from '../game/reducer';
 import type { Row } from './ScoreTable';
 
 export const REVEAL_TEXT: Record<number, string> = {
@@ -11,6 +11,19 @@ export const REVEAL_TEXT: Record<number, string> = {
 
 export function buildRows(s: GameState): Row[] {
   const gains = new Map(s.lastGains.map((g) => [g.key, g.pts]));
+  // cooperativo: un único marcador común para todo el grupo
+  if (s.options.coop) {
+    return [
+      {
+        key: 'coop',
+        name: 'Vosotros',
+        members: s.players.map((p) => p.name).join(', '),
+        score: s.players[0]?.score ?? 0,
+        delta: gains.get('coop') ?? 0,
+        colorIdx: 1,
+      },
+    ];
+  }
   const base =
     s.mode === 'teams'
       ? s.teams.map((t) => ({
@@ -19,7 +32,10 @@ export function buildRows(s: GameState): Row[] {
           members: t.players.map((x) => x.name).join(', '),
           score: t.score,
         }))
-      : s.players.map((p) => ({ key: `p${p.id}`, name: p.name, score: p.score }));
+      : // el presentador no compite, así que no sale en la tabla
+        s.players
+          .filter((p) => p.id !== presenterId(s))
+          .map((p) => ({ key: `p${p.id}`, name: p.name, score: p.score }));
   return base
     .map((r) => ({ ...r, delta: gains.get(r.key) ?? 0, colorIdx: colorIdx(s, r.key) }))
     .sort((a, b) => b.score - a.score);
@@ -27,7 +43,11 @@ export function buildRows(s: GameState): Row[] {
 
 export { initialsOf } from '../game/profile';
 
-export function winnerText(rows: Row[]): string {
+export function winnerText(rows: Row[], coop = false): string {
+  if (coop) {
+    const pts = rows[0]?.score ?? 0;
+    return `¡Habéis hecho ${pts} ${pts === 1 ? 'punto' : 'puntos'} juntos!`;
+  }
   const top = rows[0]!.score;
   const winners = rows.filter((r) => r.score === top);
   if (winners.length === 1) return `¡Gana ${winners[0]!.name}!`;

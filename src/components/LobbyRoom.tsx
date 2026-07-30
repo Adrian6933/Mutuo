@@ -1,9 +1,17 @@
 import { useState } from 'react';
 import type { LobbyMeta, LobbyPlayer, NetConfig } from '../game/online';
+import MaxPlayersPicker from './MaxPlayers';
 import type { Mode } from '../game/types';
 import { CategoryPicker, EndConfig, ExtrasConfig } from './SetupShared';
 import { COLOR_COUNT } from '../game/reducer';
 import Avatar from './Avatar';
+
+const LOBBY_MODES: { label: string; mode: Mode; presenter: boolean; coop: boolean }[] = [
+  { label: 'Todos contra todos', mode: 'ffa', presenter: false, coop: false },
+  { label: 'Por equipos', mode: 'teams', presenter: false, coop: false },
+  { label: '🎤 Presentador', mode: 'ffa', presenter: true, coop: false },
+  { label: '🤝 Cooperativo', mode: 'ffa', presenter: false, coop: true },
+];
 
 type Props = {
   lobbyId: string;
@@ -13,6 +21,7 @@ type Props = {
   uid: string;
   isHost: boolean;
   onSetConfig: (patch: Partial<NetConfig>) => void;
+  onSetMaxPlayers: (max: number | null) => void;
   onAssignTeam: (uid: string, team: number) => void;
   onRename: (name: string) => void;
   onKick: (uid: string) => void;
@@ -31,6 +40,7 @@ export default function LobbyRoom({
   uid,
   isHost,
   onSetConfig,
+  onSetMaxPlayers,
   onAssignTeam,
   onRename,
   onKick,
@@ -144,15 +154,35 @@ export default function LobbyRoom({
 
       {isHost && (
         <div className="seg" style={{ marginBottom: '12px' }}>
-          {(['ffa', 'teams'] as Mode[]).map((m) => (
-            <button
-              key={m}
-              className={`seg__opt ${config.mode === m ? 'seg__opt--on' : ''}`}
-              onClick={() => onSetConfig({ mode: m })}
-            >
-              {m === 'ffa' ? 'Todos contra todos' : 'Por equipos'}
-            </button>
-          ))}
+          {LOBBY_MODES.map((m) => {
+            const on =
+              config.mode === m.mode &&
+              !!config.options.fixedPsychic === m.presenter &&
+              !!config.options.coop === m.coop;
+            return (
+              <button
+                key={m.label}
+                className={`seg__opt ${on ? 'seg__opt--on' : ''}`}
+                onClick={() =>
+                  onSetConfig({
+                    mode: m.mode,
+                    endRule:
+                      m.coop && config.endRule.kind !== 'points'
+                        ? { kind: 'points', goal: 20 }
+                        : config.endRule,
+                    options: {
+                      ...config.options,
+                      fixedPsychic: m.presenter,
+                      coop: m.coop,
+                      ...(m.presenter || m.coop ? { allGuess: true } : {}),
+                    },
+                  })
+                }
+              >
+                {m.label}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -228,9 +258,21 @@ export default function LobbyRoom({
       )}
 
       <p className="end-config__hint" style={{ marginTop: '10px' }}>
-        {online.length} {online.length === 1 ? 'jugador conectado' : 'jugadores conectados'}. Comparte
-        el código para que se unan.
+        {online.length}
+        {meta.maxPlayers ? `/${meta.maxPlayers}` : ''}{' '}
+        {online.length === 1 && !meta.maxPlayers ? 'jugador conectado' : 'jugadores conectados'}.{' '}
+        {meta.maxPlayers && online.length >= meta.maxPlayers
+          ? 'La lobby está llena.'
+          : 'Comparte el código para que se unan.'}
       </p>
+
+      {isHost && (
+        <MaxPlayersPicker
+          value={meta.maxPlayers ?? null}
+          onChange={onSetMaxPlayers}
+          min={Math.max(2, online.length)}
+        />
+      )}
 
       {isHost ? (
         <>
@@ -262,9 +304,16 @@ export default function LobbyRoom({
       ) : (
         <p className="panel__text">
           El anfitrión está configurando la partida:{' '}
-          <b>{config.mode === 'ffa' ? 'todos contra todos' : 'por equipos'}</b>,{' '}
+          <b>
+            {config.mode === 'teams'
+              ? 'por equipos'
+              : config.options.fixedPsychic
+                ? 'presentador (él da todas las pistas)'
+                : 'todos contra todos'}
+          </b>
+          ,{' '}
           {config.endRule.kind === 'laps'
-            ? `${config.endRule.laps} ${config.mode === 'ffa' ? 'vueltas' : 'rondas'}`
+            ? `${config.endRule.laps} ${config.mode === 'ffa' && !config.options.fixedPsychic ? 'vueltas' : 'rondas'}`
             : `meta de ${config.endRule.goal} puntos`}
           . En cuanto pulse empezar, ¡dentro!
         </p>

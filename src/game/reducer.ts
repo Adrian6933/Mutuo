@@ -14,7 +14,7 @@ import type {
 } from './types';
 
 export type Action =
-  | { type: 'CHOOSE_MODE'; mode: Mode; prefs?: ModePrefs | null }
+  | { type: 'CHOOSE_MODE'; mode: Mode; prefs?: ModePrefs | null; presenter?: boolean; coop?: boolean }
   | { type: 'BACK_TO_MENU' }
   | { type: 'GO_HOME' }
   | { type: 'SET_END_RULE'; endRule: EndRule }
@@ -59,6 +59,8 @@ export const MAX_GOAL = 100;
 
 export const DEFAULT_OPTIONS: Options = {
   allGuess: true,
+  fixedPsychic: false,
+  coop: false,
   rivalBet: true,
   timerSecs: 0,
   revealSecs: 0,
@@ -100,6 +102,7 @@ export const initialState: GameState = {
   needle: 90,
   guesses: null,
   guesserIdx: 0,
+  psychicId: null,
   bet: null,
   bets: null,
   betWon: false,
@@ -128,8 +131,25 @@ function turnIndex(s: GameState, count: number): number {
 }
 
 export function ffaPsychic(s: GameState): Player {
+  // modo presentador: siempre el mismo, incluso en muerte súbita (él no compite)
+  if (s.psychicId !== null) {
+    const fixed = s.players.find((p) => p.id === s.psychicId);
+    if (fixed) return fixed;
+  }
   const elig = eligiblePlayers(s);
   return elig[turnIndex(s, elig.length)]!;
+}
+
+/** En modo presentador, quien presenta no puntúa ni sale en la clasificación. */
+export function presenterId(s: GameState): number | null {
+  return s.options.fixedPsychic ? s.psychicId : null;
+}
+
+/** Cuántos compiten de verdad: sin el presentador, y en cooperativo son un solo bando. */
+export function competitorCount(s: GameState): number {
+  if (s.options.coop) return 1;
+  if (s.mode === 'teams') return s.teams.length;
+  return s.players.length - (presenterId(s) !== null ? 1 : 0);
 }
 
 export function ffaGuesser(s: GameState): Player {
@@ -207,6 +227,8 @@ export function guesserNames(s: GameState): string {
 
 export function totalRounds(s: GameState): number | null {
   if (s.endRule.kind !== 'laps') return null;
+  // con presentador fijo no hay "vueltas": el psíquico no rota, así que cada vuelta es una ronda
+  if (presenterId(s) !== null) return s.endRule.laps;
   const n = s.mode === 'teams' ? s.teams.length : s.players.length;
   return s.endRule.laps * n;
 }
@@ -220,10 +242,14 @@ export function isGameOver(s: GameState): boolean {
 }
 
 export function leaders(s: GameState): string[] {
+  if (s.options.coop) return ['coop']; // no hay rivales: nunca hay desempate
+  const pres = presenterId(s);
   const pool =
     s.mode === 'teams'
       ? s.teams.map((t) => ({ key: `t${t.id}`, score: t.score }))
-      : s.players.map((p) => ({ key: `p${p.id}`, score: p.score }));
+      : s.players
+          .filter((p) => p.id !== pres)
+          .map((p) => ({ key: `p${p.id}`, score: p.score }));
   const sub = s.tiebreakKeys ? pool.filter((x) => s.tiebreakKeys!.includes(x.key)) : pool;
   const max = Math.max(...sub.map((x) => x.score));
   return sub.filter((x) => x.score === max).map((x) => x.key);
@@ -331,7 +357,34 @@ function applyRevealAll(s: GameState): GameState {
     pts: scoreFor(s.guesses?.[p.id.toString()] ?? 90, s.target),
   }));
   const maxPts = results.reduce((m, r) => Math.max(m, r.pts), 0);
-  const psyPts = s.tiebreakKeys ? 0 : results.filter((r) => r.pts > 0).length;
+  // el presentador no compite: ni suma por acertantes ni aparece en la clasificación
+  const psyPts =
+    s.tiebreakKeys || presenterId(s) !== null ? 0 : results.filter((r) => r.pts > 0).length;
+
+  // cooperativo: los aciertos van a un bote común, todos comparten el mismo marcador
+  if (s.options.coop) {
+    const roundPts = results.reduce((n, r) => n + r.pts, 0);
+    const players = s.players.map((p) => ({ ...p, score: p.score + roundPts }));
+    const history = [
+      ...s.history,
+      {
+        psychic: psy.name,
+        guesser: 'todos',
+        pts: maxPts,
+        betWon: false,
+        all: results.map((r) => ({ name: r.p.name, pts: r.pts })),
+      },
+    ];
+    return {
+      ...s,
+      betWon: false,
+      lastPts: maxPts,
+      lastGains: roundPts > 0 ? [{ key: 'coop', label: 'Equipo', pts: roundPts }] : [],
+      history,
+      players,
+      phase: 'reveal',
+    };
+  }
 
   const gained = new Map<number, number>(
     results.filter((r) => r.pts > 0).map((r) => [r.p.id, r.pts])
@@ -449,8 +502,24 @@ function freshRound(s: GameState): GameState {
 
 export function reducer(s: GameState, a: Action): GameState {
   switch (a.type) {
-    case 'CHOOSE_MODE':
-      return buildFromPrefs(a.mode, a.prefs);
+    case 'CHOOSE_MODE': {
+      const base = buildFromPrefs(a.mode, a.prefs);
+      if (a.presenter === undefined && a.coop === undefined) return base;
+      const presenter = a.presenter ?? false;
+      const coop = a.coop ?? false;
+      return {
+        ...base,
+        // el cooperativo mide puntos del grupo, no vueltas
+        endRule: coop ? { kind: 'points', goal: 20 } : base.endRule,
+        options: {
+          ...base.options,
+          fixedPsychic: presenter,
+          coop,
+          // con presentador o en cooperativo todos adivinan: ir uno por uno no escala
+          allGuess: presenter || coop ? true : base.options.allGuess,
+        },
+      };
+    }
 
     case 'BACK_TO_MENU':
     case 'GO_HOME':
@@ -610,10 +679,19 @@ export function reducer(s: GameState, a: Action): GameState {
           return { ...p, name: p.name.trim() || `Jugador ${counter}` };
         }),
       }));
+      // modo presentador: presenta el primero de la lista (o el indicado desde la lobby online)
+      const fixed = s.options.fixedPsychic
+        ? (s.psychicId !== null && players.some((p) => p.id === s.psychicId)
+            ? s.psychicId
+            : players[0]?.id) ?? null
+        : null;
       return freshRound({
         ...s,
         players,
         teams,
+        options:
+          s.options.fixedPsychic || s.options.coop ? { ...s.options, allGuess: true } : s.options,
+        psychicId: fixed,
         deck: shuffle(deckFor(s.categories)),
         deckIndex: 0,
         round: 0,
@@ -762,7 +840,7 @@ export function reducer(s: GameState, a: Action): GameState {
 
       if (isGameOver(next)) {
         const lead = leaders(next);
-        const totalCompetitors = next.mode === 'teams' ? next.teams.length : next.players.length;
+        const totalCompetitors = competitorCount(next);
         if (next.options.tiebreak && lead.length > 1 && totalCompetitors > 2) {
           return freshRound({
             ...next,
