@@ -15,7 +15,7 @@ export default function SetupFfa({ s, dispatch }: Props) {
 
   return (
     <section className="panel panel--setup">
-      <p className="panel__kicker">{s.mode === 'ffa-all' ? 'Todos contra todos' : 'En cadena'}</p>
+      <p className="panel__kicker">Todos contra todos</p>
       <h2 className="panel__title">¿Quién juega?</h2>
 
       <div className="player-list">

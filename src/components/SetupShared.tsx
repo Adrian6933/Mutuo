@@ -202,7 +202,9 @@ export function ToggleRow({ label, hint, checked, onChange }: ToggleProps) {
 }
 
 const TIMER_OPTIONS: Options['timerSecs'][] = [0, 15, 20, 30];
+const REVEAL_OPTIONS: Options['revealSecs'][] = [0, 5, 10, 15];
 const STANDINGS_OPTIONS: Options['standingsSecs'][] = [0, 8, 15];
+const VOTE_PCT_OPTIONS: Options['skipVotePct'][] = [50, 60, 75, 100];
 
 type ExtrasProps = {
   mode: Mode;
@@ -214,7 +216,18 @@ export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
   return (
     <div className="end-config extras">
       <p className="panel__kicker">Extras</p>
-      {mode !== 'ffa-all' && (
+      {mode === 'ffa' && (
+        <ToggleRow
+          label="Todos adivinan a la vez"
+          hint={
+            'Cada uno mueve su propia aguja sin ver la del resto (online: a la vez; local: uno detrás de otro sin enseñarla). ' +
+            'El psíquico gana +1 punto por cada acertante. Si lo desactivas, solo adivina el siguiente y el resto apuesta de qué lado cae.'
+          }
+          checked={options.allGuess}
+          onChange={(v) => onChange({ allGuess: v })}
+        />
+      )}
+      {(mode === 'teams' || (mode === 'ffa' && !options.allGuess)) && (
         <ToggleRow
           label={mode === 'teams' ? 'Apuesta rival' : 'Apuesta de lado'}
           hint={
@@ -264,10 +277,46 @@ export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
       </div>
       <div className="toggle-row toggle-row--static">
         <span className="toggle-row__text">
+          <span className="toggle-row__label">Temporizador para ver resultados</span>
+          <span className="toggle-row__hint">A cero, la pantalla de resultados no se pasa sola.</span>
+        </span>
+        <span className="chip-row chip-row--tight">
+          {REVEAL_OPTIONS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={`chip chip--mini ${options.revealSecs === t ? 'chip--on' : ''}`}
+              onClick={() => onChange({ revealSecs: t })}
+            >
+              {t === 0 ? 'Off' : `${t}s`}
+            </button>
+          ))}
+          <div className="custom-timer-input-wrap">
+            <input
+              type="number"
+              className="input custom-timer-input"
+              value={!REVEAL_OPTIONS.includes(options.revealSecs) ? options.revealSecs : ''}
+              placeholder="Pers."
+              min={1}
+              max={60}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val)) {
+                  onChange({ revealSecs: Math.max(1, Math.min(60, val)) });
+                } else {
+                  onChange({ revealSecs: 0 });
+                }
+              }}
+            />
+          </div>
+        </span>
+      </div>
+      <div className="toggle-row toggle-row--static">
+        <span className="toggle-row__text">
           <span className="toggle-row__label">Avanzar de ronda solo</span>
           <span className="toggle-row__hint">
             Al ver la clasificación, pasa a la siguiente ronda sin esperar a que alguien pulse el
-            botón. Útil en online para no depender del anfitrión.
+            botón.
           </span>
         </span>
         <span className="chip-row chip-row--tight">
@@ -301,6 +350,52 @@ export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
           </div>
         </span>
       </div>
+      <div className="toggle-row toggle-row--static">
+        <span className="toggle-row__text">
+          <span className="toggle-row__label">Modo para pasar de fase</span>
+          <span className="toggle-row__hint">
+            {options.advanceMode === 'vote'
+              ? 'Los jugadores pueden votar para avanzar. Al alcanzar el porcentaje necesario, pasa automáticamente.'
+              : 'Solo el anfitrión (o el temporizador) puede hacer avanzar la pantalla.'}
+          </span>
+        </span>
+        <span className="seg">
+          <button
+            type="button"
+            className={`seg__opt ${options.advanceMode === 'admin' ? 'seg__opt--on' : ''}`}
+            onClick={() => onChange({ advanceMode: 'admin' })}
+          >
+            Anfitrión
+          </button>
+          <button
+            type="button"
+            className={`seg__opt ${options.advanceMode === 'vote' ? 'seg__opt--on' : ''}`}
+            onClick={() => onChange({ advanceMode: 'vote' })}
+          >
+            Por votos
+          </button>
+        </span>
+      </div>
+      {options.advanceMode === 'vote' && (
+        <div className="toggle-row toggle-row--static">
+          <span className="toggle-row__text">
+            <span className="toggle-row__label">Votos para avanzar</span>
+            <span className="toggle-row__hint">Porcentaje de jugadores conectados que deben votar para avanzar.</span>
+          </span>
+          <span className="chip-row chip-row--tight">
+            {VOTE_PCT_OPTIONS.map((pct) => (
+              <button
+                key={pct}
+                type="button"
+                className={`chip chip--mini ${options.skipVotePct === pct ? 'chip--on' : ''}`}
+                onClick={() => onChange({ skipVotePct: pct })}
+              >
+                {pct}%
+              </button>
+            ))}
+          </span>
+        </div>
+      )}
       <ToggleRow
         label="Desempate automático"
         hint="Si hay empate al final, muerte súbita entre los empatados."

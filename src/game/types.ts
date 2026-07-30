@@ -1,6 +1,6 @@
 import type { Card, CategoryId } from '../data/cards';
 
-export type Mode = 'ffa' | 'ffa-all' | 'teams';
+export type Mode = 'ffa' | 'teams';
 
 export type BetSide = 'left' | 'right' | 'exact' | 'miss';
 
@@ -9,10 +9,18 @@ export type EndRule =
   | { kind: 'points'; goal: number };
 
 export type Options = {
+  /** en "ffa": todos adivinan (a la vez online, por turnos en local) en vez de solo el siguiente */
+  allGuess: boolean;
   rivalBet: boolean;
   timerSecs: number;
+  /** segundos para pasar de los resultados a la clasificación; 0 = deshabilitado */
+  revealSecs: number;
   /** segundos para pasar solo de la clasificación a la siguiente ronda; 0 = hay que pulsar el botón */
   standingsSecs: number;
+  /** quién o cómo se puede avanzar de fase: "admin" solo anfitrión, "vote" por porcentaje de votos */
+  advanceMode: 'admin' | 'vote';
+  /** porcentaje necesario de votos de jugadores online para avanzar (por defecto 50) */
+  skipVotePct: number;
   tiebreak: boolean;
   randomRotation: boolean;
   stats: boolean;

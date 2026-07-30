@@ -84,6 +84,9 @@ export default function Online({ onExit }: { onExit: () => void }) {
             onAssignTeam={lobby.assignTeam}
             onRename={lobby.renameSelf}
             onKick={lobby.kickPlayer}
+            onShuffleFfa={lobby.shuffleFfaOrder}
+            onDistributeTeamsOfTwo={lobby.distributeTeamsOfTwo}
+            onShuffleTeamInternal={lobby.shuffleTeamInternalOrder}
             onStart={lobby.startGame}
             onLeave={exit}
           />
@@ -94,10 +97,12 @@ export default function Online({ onExit }: { onExit: () => void }) {
             game={lobby.game}
             live={lobby.live}
             assign={lobby.assign}
+            players={lobby.players}
             uid={lobby.uid}
             isHost={lobby.isHost}
             sendAction={lobby.sendAction}
             setLiveNeedle={lobby.setLiveNeedle}
+            setSkipVote={lobby.setSkipVote}
             backToLobby={lobby.backToLobby}
             onLeave={exit}
           />

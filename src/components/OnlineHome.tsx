@@ -88,7 +88,7 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
               <button key={l.id} className="lobby-item" onClick={() => onJoin(l.id, '', name)}>
                 <span className="lobby-item__name">{l.name}</span>
                 <span className="lobby-item__info">
-                  {l.mode === 'ffa' ? 'En cadena' : 'Equipos'} · {l.players}{' '}
+                  {l.mode === 'ffa' ? 'Todos contra todos' : 'Equipos'} · {l.players}{' '}
                   {l.players === 1 ? 'jugador' : 'jugadores'} · {l.id}
                 </span>
               </button>
@@ -164,7 +164,7 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
               className={`seg__opt ${mode === 'ffa' ? 'seg__opt--on' : ''}`}
               onClick={() => setMode('ffa')}
             >
-              En cadena
+              Todos contra todos
             </button>
             <button
               type="button"

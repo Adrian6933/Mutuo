@@ -43,7 +43,8 @@ export type Action =
   | { type: 'CLUE_GIVEN'; text?: string }
   | { type: 'BEGIN_GUESS' }
   | { type: 'SET_NEEDLE'; angle: number }
-  | { type: 'CONFIRM_GUESS'; angle?: number }
+  | { type: 'CONFIRM_GUESS'; angle?: number; playerId?: number }
+  | { type: 'FINALIZE_GUESSES' }
   | { type: 'PLACE_BET'; side: BetSide; playerId?: number }
   | { type: 'REVEAL_FFA' }
   | { type: 'SHOW_STANDINGS' }
@@ -56,9 +57,13 @@ export const MAX_LAPS = 9;
 export const MAX_GOAL = 100;
 
 export const DEFAULT_OPTIONS: Options = {
+  allGuess: true,
   rivalBet: true,
   timerSecs: 0,
+  revealSecs: 0,
   standingsSecs: 0,
+  advanceMode: 'admin',
+  skipVotePct: 50,
   tiebreak: true,
   randomRotation: false,
   stats: true,
@@ -73,7 +78,7 @@ export function randomTarget(): number {
 
 export const initialState: GameState = {
   phase: 'menu',
-  mode: 'ffa-all',
+  mode: 'ffa',
   endRule: { kind: 'laps', laps: 1 },
   categories: ALL_CATEGORIES,
   options: DEFAULT_OPTIONS,
@@ -189,9 +194,9 @@ function joinNames(names: string[]): string {
 }
 
 export function guesserNames(s: GameState): string {
-  if (s.mode === 'ffa') return ffaGuesser(s).name;
-  if (s.mode === 'ffa-all') return joinNames(allGuessers(s).map((p) => p.name));
-  return joinNames(teamGuessers(activeTeam(s)).map((p) => p.name));
+  if (s.mode === 'teams') return joinNames(teamGuessers(activeTeam(s)).map((p) => p.name));
+  if (s.options.allGuess) return joinNames(allGuessers(s).map((p) => p.name));
+  return ffaGuesser(s).name;
 }
 
 export function totalRounds(s: GameState): number | null {
@@ -228,7 +233,7 @@ export function colorIdx(s: GameState, key: string): number {
 }
 
 export function canStart(s: GameState): boolean {
-  if (s.mode !== 'teams') return s.players.length >= 2;
+  if (s.mode === 'ffa') return s.players.length >= 2;
   return s.teams.length >= 2 && s.teams.every((t) => t.players.length >= 2);
 }
 
@@ -383,16 +388,14 @@ function buildFromPrefs(mode: Mode, prefs: ModePrefs | null | undefined): GameSt
     ...initialState,
     mode,
     phase: 'setup',
-    endRule: mode !== 'teams' ? { kind: 'laps', laps: 1 } : { kind: 'points', goal: 10 },
+    endRule: mode === 'ffa' ? { kind: 'laps', laps: 1 } : { kind: 'points', goal: 10 },
   };
   let id = 1;
-  if (mode !== 'teams') {
+  if (mode === 'ffa') {
     const names =
       prefs?.players && prefs.players.length >= 2
         ? prefs.players.map((p) => p.name)
-        : mode === 'ffa-all'
-          ? ['Jugador 1', 'Jugador 2', 'Jugador 3']
-          : ['Jugador 1', 'Jugador 2'];
+        : ['Jugador 1', 'Jugador 2', 'Jugador 3'];
     base.players = names.map((name) => ({ id: id++, name, score: 0 }));
   } else {
     const teamDefs =
@@ -657,7 +660,7 @@ export function reducer(s: GameState, a: Action): GameState {
       return {
         ...s,
         clue: a.text?.trim() || null,
-        phase: s.mode === 'ffa-all' ? 'guess-handoff' : 'guess',
+        phase: s.mode === 'ffa' && s.options.allGuess ? 'guess-handoff' : 'guess',
       };
 
     case 'BEGIN_GUESS':
@@ -670,20 +673,35 @@ export function reducer(s: GameState, a: Action): GameState {
 
     case 'CONFIRM_GUESS': {
       if (s.phase !== 'guess') return s;
-      if (s.mode === 'ffa-all') {
+      if (s.mode === 'ffa' && s.options.allGuess) {
         const gs = allGuessers(s);
-        const cur = gs[s.guesserIdx];
-        if (!cur) return s;
-        const guesses = { ...(s.guesses ?? {}), [cur.id.toString()]: a.angle ?? s.needle };
-        if (s.guesserIdx + 1 < gs.length) {
-          return { ...s, guesses, needle: 90, guesserIdx: s.guesserIdx + 1, phase: 'guess-handoff' };
+        const targetId = a.playerId ?? gs[s.guesserIdx]?.id;
+        if (targetId === undefined) return s;
+        if (s.guesses?.[targetId.toString()] !== undefined) return s; // ya ha confirmado (dedupe online)
+        const guesses = { ...(s.guesses ?? {}), [targetId.toString()]: a.angle ?? s.needle };
+        const allIn = gs.every((p) => guesses[p.id.toString()] !== undefined);
+        if (allIn) return applyRevealAll({ ...s, guesses });
+        if (a.playerId !== undefined) {
+          // online: simultáneo, cada uno confirma a su ritmo sin pasar turno
+          return { ...s, guesses };
         }
-        return applyRevealAll({ ...s, guesses });
+        // local: pasa el móvil al siguiente que falte por adivinar
+        const nextIdx = gs.findIndex((p) => guesses[p.id.toString()] === undefined);
+        return { ...s, guesses, needle: 90, guesserIdx: nextIdx, phase: 'guess-handoff' };
       }
       const hasBettors =
         s.mode === 'ffa' ? ffaBystanders(s).length > 0 : s.teams.length >= 2;
       if (s.options.rivalBet && hasBettors) return { ...s, phase: 'rival-bet' };
       return s.mode === 'ffa' ? applyRevealFfa(s, null) : applyRevealTeams(s, null);
+    }
+
+    case 'FINALIZE_GUESSES': {
+      if (s.phase !== 'guess' || !(s.mode === 'ffa' && s.options.allGuess)) return s;
+      const guesses = { ...(s.guesses ?? {}) };
+      for (const p of allGuessers(s)) {
+        if (guesses[p.id.toString()] === undefined) guesses[p.id.toString()] = 90;
+      }
+      return applyRevealAll({ ...s, guesses });
     }
 
     case 'PLACE_BET': {

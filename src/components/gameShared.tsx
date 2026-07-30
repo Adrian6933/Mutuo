@@ -60,7 +60,7 @@ export function Stats({ s }: { s: GameState }) {
       : 'Ningún 4 clavado… habrá revancha'
   );
   if (bestPsychic[1] > 0) lines.push(`Mejor psíquico: ${bestPsychic[0]} (${bestPsychic[1]} pts)`);
-  if (s.mode === 'ffa' || s.mode === 'ffa-all') {
+  if (s.mode === 'ffa') {
     const byPair = new Map<string, number>();
     for (const r of h) {
       const pairs = r.all
@@ -72,7 +72,8 @@ export function Stats({ s }: { s: GameState }) {
     const best = [...byPair.entries()].sort((a, b) => b[1] - a[1])[0]!;
     if (best[1] > 0) lines.push(`Pareja en sintonía: ${best[0]} (${best[1]} pts)`);
   }
-  if (s.options.rivalBet && s.mode !== 'ffa-all') {
+  const usesRivalBet = s.mode === 'teams' || (s.mode === 'ffa' && !s.options.allGuess);
+  if (s.options.rivalBet && usesRivalBet) {
     const bets = h.filter((r) => r.betWon).length;
     lines.push(`Apuestas de lado acertadas: ${bets}`);
   }

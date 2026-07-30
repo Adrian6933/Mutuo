@@ -23,6 +23,7 @@ import {
   ffaPsychic,
   ffaGuesser,
   ffaBystanders,
+  allGuessers,
   activeTeam,
   rivalTeam,
   teamPsychic,
@@ -52,6 +53,8 @@ export type LobbyPlayer = {
   joinedAt: number;
   /** índice de equipo asignado por el host (modo equipos) */
   team?: number;
+  /** orden de lista o de equipo asignado */
+  order?: number;
 };
 
 export type NetConfig = {
@@ -61,7 +64,7 @@ export type NetConfig = {
   options: Options;
 };
 
-export type Live = { needle?: number; timerEnd?: number };
+export type Live = { needle?: number; timerEnd?: number; skipVotes?: Record<string, boolean> };
 
 export type PublicLobby = { id: string; name: string; players: number; mode: Mode };
 
@@ -149,6 +152,12 @@ export function roleFor(
   if (s.mode === 'ffa') {
     if (s.players.length === 0) return { ...none, playerId, isMember: true };
     const isPsychic = ffaPsychic(s).id === playerId;
+    if (s.options.allGuess) {
+      const already = s.guesses ? s.guesses[playerId.toString()] !== undefined : false;
+      const isGuesser = !isPsychic && !already && allGuessers(s).some((p) => p.id === playerId);
+      // en "todos adivinan" no hay espectadores que apuesten
+      return { playerId, isMember: true, isPsychic, isGuesser, isRival: false };
+    }
     const isGuesser = ffaGuesser(s).id === playerId;
     return {
       playerId,
@@ -195,6 +204,8 @@ function actionAllowed(
     case 'SET_NEEDLE':
     case 'CONFIRM_GUESS':
       return role.isGuesser || senderUid === meta.hostUid; // host: temporizador
+    case 'FINALIZE_GUESSES':
+      return senderUid === meta.hostUid; // cierre de "todos adivinan": timeout o todos enviados
     case 'PLACE_BET':
       return role.isRival;
     case 'REVEAL_FFA':
@@ -366,6 +377,9 @@ export function useLobby() {
       if (action.type === 'PLACE_BET') {
         const playerId = asg[senderUid];
         finalAction = { ...action, playerId };
+      } else if (action.type === 'CONFIRM_GUESS' && st.mode === 'ffa' && st.options.allGuess) {
+        // online: siempre se atribuye al remitente, nunca al playerId que mande el cliente
+        finalAction = { ...action, playerId: asg[senderUid] };
       }
       next = reducer(next, finalAction);
       if (next === st) return;
@@ -394,12 +408,33 @@ export function useLobby() {
         return;
       }
 
+      // "todos adivinan" online: sin pase de turno, todos entran a la vez en 'guess'
+      if (st.phase === 'guess-handoff') {
+        if (timerHandle.current) {
+          clearTimeout(timerHandle.current);
+          timerHandle.current = null;
+        }
+        void remove(ref(db, `${base}/live/timerEnd`));
+        lastTimerPhase.current = null;
+
+        setTimeout(() => {
+          const cur = hostState.current;
+          if (cur && cur.phase === 'guess-handoff') {
+            const next = reducer(cur, { type: 'BEGIN_GUESS' });
+            publish(next);
+            afterApply(next);
+          }
+        }, 0);
+        return;
+      }
+
       // Si la fase no ha cambiado, no volvemos a iniciar el temporizador
       if (lastTimerPhase.current === st.phase) {
         return;
       }
 
-      // Al cambiar de fase, limpiamos el temporizador anterior
+      // Al cambiar de fase, limpiamos el temporizador anterior y los votos de saltar
+      void remove(ref(db, `${base}/live/skipVotes`));
       if (timerHandle.current) {
         clearTimeout(timerHandle.current);
         timerHandle.current = null;
@@ -416,6 +451,17 @@ export function useLobby() {
             applyAction({ type: 'CLUE_GIVEN', text: '' }, uid);
           }
         }, 25300);
+      } else if (st.phase === 'guess' && st.mode === 'ffa' && st.options.allGuess && st.options.timerSecs > 0) {
+        const end = Date.now() + st.options.timerSecs * 1000;
+        void set(ref(db, `${base}/live/timerEnd`), end);
+        lastTimerPhase.current = st.phase;
+        const round = st.round;
+        timerHandle.current = setTimeout(() => {
+          const cur = hostState.current;
+          if (cur && cur.phase === 'guess' && cur.round === round) {
+            applyAction({ type: 'FINALIZE_GUESSES' }, uid);
+          }
+        }, st.options.timerSecs * 1000 + 300);
       } else if (st.phase === 'guess' && st.options.timerSecs > 0) {
         const end = Date.now() + st.options.timerSecs * 1000;
         void set(ref(db, `${base}/live/timerEnd`), end);
@@ -443,8 +489,8 @@ export function useLobby() {
             }
           }
         }, 10300);
-      } else if (st.phase === 'reveal') {
-        const end = Date.now() + 5000;
+      } else if (st.phase === 'reveal' && st.options.revealSecs > 0) {
+        const end = Date.now() + st.options.revealSecs * 1000;
         void set(ref(db, `${base}/live/timerEnd`), end);
         lastTimerPhase.current = st.phase;
         const round = st.round;
@@ -453,7 +499,7 @@ export function useLobby() {
           if (cur && cur.phase === 'reveal' && cur.round === round) {
             applyAction({ type: 'SHOW_STANDINGS' }, uid);
           }
-        }, 5300);
+        }, st.options.revealSecs * 1000 + 300);
       } else if (st.phase === 'standings' && st.options.standingsSecs > 0) {
         const end = Date.now() + st.options.standingsSecs * 1000;
         void set(ref(db, `${base}/live/timerEnd`), end);
@@ -601,6 +647,54 @@ export function useLobby() {
         void remove(ref(getDb(), `lobbies/${id}/players/${targetUid}`));
       },
 
+      shuffleFfaOrder() {
+        const id = lobbyId;
+        if (!id || metaRef.current?.hostUid !== uid) return;
+        const db = getDb();
+        const onlineEntries = Object.entries(playersRef.current).filter(([, p]) => p.online);
+        const shuffled = shuffle(onlineEntries);
+        const updates: Record<string, number> = {};
+        shuffled.forEach(([pUid], idx) => {
+          updates[`lobbies/${id}/players/${pUid}/order`] = idx;
+        });
+        void update(ref(db), updates);
+      },
+
+      distributeTeamsOfTwo() {
+        const id = lobbyId;
+        if (!id || metaRef.current?.hostUid !== uid) return;
+        const db = getDb();
+        const onlineEntries = Object.entries(playersRef.current).filter(([, p]) => p.online);
+        const shuffled = shuffle(onlineEntries);
+        const updates: Record<string, number> = {};
+        shuffled.forEach(([pUid], idx) => {
+          const teamIdx = Math.floor(idx / 2);
+          updates[`lobbies/${id}/players/${pUid}/team`] = teamIdx;
+          updates[`lobbies/${id}/players/${pUid}/order`] = idx % 2;
+        });
+        void update(ref(db), updates);
+      },
+
+      shuffleTeamInternalOrder() {
+        const id = lobbyId;
+        if (!id || metaRef.current?.hostUid !== uid) return;
+        const db = getDb();
+        const onlineEntries = Object.entries(playersRef.current).filter(([, p]) => p.online);
+        const teamsMap = new Map<number, [string, LobbyPlayer][]>();
+        for (const e of onlineEntries) {
+          const t = e[1].team ?? 0;
+          teamsMap.set(t, [...(teamsMap.get(t) ?? []), e]);
+        }
+        const updates: Record<string, number> = {};
+        for (const [, teamPlayers] of teamsMap) {
+          const shuffled = shuffle(teamPlayers);
+          shuffled.forEach(([pUid], idx) => {
+            updates[`lobbies/${id}/players/${pUid}/order`] = idx;
+          });
+        }
+        void update(ref(db), updates);
+      },
+
       startGame() {
         const me = requireUid();
         const id = lobbyId;
@@ -609,7 +703,7 @@ export function useLobby() {
         const db = getDb();
         const entries = Object.entries(playersRef.current)
           .filter(([, p]) => p.online)
-          .sort((a, b) => a[1].joinedAt - b[1].joinedAt);
+          .sort((a, b) => (a[1].order ?? a[1].joinedAt) - (b[1].order ?? b[1].joinedAt));
         const assignMap: Record<string, number> = {};
         let base: GameState = {
           ...initialState,
@@ -637,12 +731,15 @@ export function useLobby() {
           let nid = 1;
           base.teams = teamIdxs.map((ti, i) => {
             const teamId = nid++;
+            const sortedTeamPlayers = groups
+              .get(ti)!
+              .sort((a, b) => (a[1].order ?? a[1].joinedAt) - (b[1].order ?? b[1].joinedAt));
             return {
               id: teamId,
               name: `Equipo ${i + 1}`,
               score: 0,
               psychicIdx: 0,
-              players: groups.get(ti)!.map(([pUid, p]) => {
+              players: sortedTeamPlayers.map(([pUid, p]) => {
                 const pid = nid++;
                 assignMap[pUid] = pid;
                 return { id: pid, name: p.name };
@@ -681,6 +778,18 @@ export function useLobby() {
       setLiveNeedle(angle: number) {
         if (!lobbyId) return;
         void set(ref(getDb(), `lobbies/${lobbyId}/live/needle`), Math.round(angle * 10) / 10);
+      },
+
+      setSkipVote(voted: boolean) {
+        const me = uid;
+        const id = lobbyId;
+        if (!me || !id) return;
+        const voteRef = ref(getDb(), `lobbies/${id}/live/skipVotes/${me}`);
+        if (voted) {
+          void set(voteRef, true);
+        } else {
+          void remove(voteRef);
+        }
       },
 
       async listPublic(): Promise<PublicLobby[]> {
@@ -751,6 +860,73 @@ export function useLobby() {
       }
     }
   }, [players, lobbyId, uid, isHost, game, assign]);
+
+  /* host: cierra "todos adivinan" en cuanto todos los guessers online han confirmado
+   * (los desconectados se rellenan con la aguja al centro, sin bloquear la ronda) */
+  useEffect(() => {
+    if (
+      !lobbyId ||
+      !uid ||
+      !isHost ||
+      !game ||
+      game.phase !== 'guess' ||
+      game.mode !== 'ffa' ||
+      !game.options.allGuess
+    )
+      return;
+    const asg = assign;
+    if (!asg) return;
+
+    const gs = allGuessers(game);
+    const onlineGuessers = Object.entries(players).filter(([pUid, p]) => {
+      if (!p.online) return false;
+      const pId = asg[pUid];
+      return pId !== undefined && pId !== null && gs.some((g) => g.id === pId);
+    });
+    const allSubmitted =
+      onlineGuessers.length > 0 &&
+      onlineGuessers.every(([pUid]) => {
+        const pId = asg[pUid];
+        return game.guesses && game.guesses[pId!.toString()] !== undefined;
+      });
+
+    if (
+      allSubmitted &&
+      hostState.current &&
+      hostState.current.phase === 'guess' &&
+      hostState.current.round === game.round
+    ) {
+      void push(ref(getDb(), `lobbies/${lobbyId}/actions`), { uid, action: { type: 'FINALIZE_GUESSES' } });
+    }
+  }, [players, lobbyId, uid, isHost, game, assign]);
+
+  /* host: auto-avanzar si los votos de saltar alcanzan el % fijado */
+  useEffect(() => {
+    if (!lobbyId || !uid || !isHost || !game) return;
+    if (!['reveal', 'standings'].includes(game.phase)) return;
+    if (game.options.advanceMode !== 'vote') return;
+
+    const onlinePlayers = Object.entries(players).filter(([, p]) => p.online);
+    const totalOnline = onlinePlayers.length;
+    if (totalOnline === 0) return;
+
+    const votesMap = live.skipVotes ?? {};
+    const votedCount = onlinePlayers.filter(([pUid]) => votesMap[pUid] === true).length;
+    const targetPct = game.options.skipVotePct ?? 50;
+    const currentPct = (votedCount / totalOnline) * 100;
+
+    if (currentPct >= targetPct) {
+      const db = getDb();
+      const base = `lobbies/${lobbyId}`;
+      if (hostState.current && hostState.current.round === game.round) {
+        if (game.phase === 'reveal' && hostState.current.phase === 'reveal') {
+          void push(ref(db, `${base}/actions`), { uid, action: { type: 'SHOW_STANDINGS' } });
+        } else if (game.phase === 'standings' && hostState.current.phase === 'standings') {
+          void push(ref(db, `${base}/actions`), { uid, action: { type: 'NEXT_ROUND' } });
+        }
+      }
+    }
+  }, [players, live.skipVotes, lobbyId, uid, isHost, game]);
 
   return {
     ready: firebaseReady,

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import Dial from './Dial';
+import Dial, { scoreFor, type DialMarker } from './Dial';
 import ScoreTable from './ScoreTable';
 import Confetti from './Confetti';
 import RivalBet from './RivalBet';
 import { CardPicker, CustomCardForm, ClueForm } from './CardPicker';
-import { REVEAL_TEXT, buildRows, winnerText, Stats } from './gameShared';
+import { REVEAL_TEXT, buildRows, winnerText, initialsOf, Stats } from './gameShared';
 import {
   psychicName,
   guesserNames,
@@ -12,13 +12,16 @@ import {
   rivalTeam,
   ffaBystanderNames,
   ffaBystanders,
+  ffaPsychic,
+  allGuessers,
+  colorIdx,
   circularDelta,
   isGameOver,
   leaders,
   totalRounds,
   type Action,
 } from '../game/reducer';
-import { roleFor, type Live } from '../game/online';
+import { roleFor, type Live, type LobbyPlayer } from '../game/online';
 import { setSoundEnabled, sfx } from '../game/sound';
 import type { GameState } from '../game/types';
 
@@ -26,13 +29,73 @@ type Props = {
   game: GameState;
   live: Live;
   assign: Record<string, number> | null;
+  players: Record<string, LobbyPlayer>;
   uid: string;
   isHost: boolean;
   sendAction: (a: Action) => void;
   setLiveNeedle: (angle: number) => void;
+  setSkipVote: (voted: boolean) => void;
   backToLobby: () => void;
   onLeave: () => void;
 };
+
+function SkipVoteBar({
+  isHost,
+  hasVoted,
+  votedCount,
+  totalOnline,
+  requiredPct,
+  advanceMode,
+  onToggleVote,
+  onHostAdvance,
+  advanceLabel,
+}: {
+  isHost: boolean;
+  hasVoted: boolean;
+  votedCount: number;
+  totalOnline: number;
+  requiredPct: number;
+  advanceMode: 'admin' | 'vote';
+  onToggleVote: () => void;
+  onHostAdvance: () => void;
+  advanceLabel: string;
+}) {
+  const isVoteMode = advanceMode === 'vote';
+  const currentPct = totalOnline > 0 ? Math.round((votedCount / totalOnline) * 100) : 0;
+
+  return (
+    <div className="skip-vote-wrap">
+      {isVoteMode && (
+        <div className="skip-vote-card">
+          <div className="skip-vote-info">
+            <span className="skip-vote-label">
+              🗳️ Votos para avanzar: <b>{votedCount}/{totalOnline}</b> ({currentPct}%)
+            </span>
+            <span className="skip-vote-target">Meta: {requiredPct}%</span>
+          </div>
+          <button
+            type="button"
+            className={`btn ${hasVoted ? 'btn--ghost skip-vote-btn--voted' : 'btn--secondary'}`}
+            onClick={onToggleVote}
+          >
+            {hasVoted ? '✅ Tu voto registrado (pulsar para cancelar)' : '🗳️ Votar para avanzar'}
+          </button>
+        </div>
+      )}
+      {isHost ? (
+        <button className="btn btn--primary" onClick={onHostAdvance}>
+          {isVoteMode ? `${advanceLabel} (Anfitrión)` : advanceLabel}
+        </button>
+      ) : (
+        !isVoteMode && (
+          <p className="end-config__hint" style={{ marginTop: '14px' }}>
+            Esperando a que el anfitrión avance…
+          </p>
+        )
+      )}
+    </div>
+  );
+}
 
 function Waiting({ kicker, text, timeLeft }: { kicker: string; text: string; timeLeft?: number | null }) {
   return (
@@ -57,16 +120,28 @@ export default function OnlineGame({
   game: s,
   live,
   assign,
+  players,
   uid,
   isHost,
   sendAction,
   setLiveNeedle,
+  setSkipVote,
   backToLobby,
   onLeave,
 }: Props) {
   const role = roleFor(s, assign, uid);
+  const onlinePlayers = Object.entries(players).filter(([, p]) => p.online);
+  const totalOnline = onlinePlayers.length;
+  const skipVotes = live.skipVotes ?? {};
+  const votedToSkipCount = onlinePlayers.filter(([pUid]) => skipVotes[pUid] === true).length;
+  const hasVotedToSkip = Boolean(skipVotes[uid]);
+  const allGuessMode = s.mode === 'ffa' && s.options.allGuess;
   const hasVoted = s.mode === 'ffa' && s.bets && role.playerId !== null && s.bets[role.playerId.toString()] !== undefined;
-  const isFfaBystander = s.mode === 'ffa' && role.playerId !== null && ffaBystanders(s).some((p) => p.id === role.playerId);
+  const myGuessDone =
+    allGuessMode && role.playerId !== null && s.guesses ? s.guesses[role.playerId.toString()] !== undefined : false;
+  const guessesInCount = allGuessMode ? Object.keys(s.guesses ?? {}).length : 0;
+  const guessesTotalCount = allGuessMode ? allGuessers(s).length : 0;
+  const isFfaBystander = s.mode === 'ffa' && !allGuessMode && role.playerId !== null && ffaBystanders(s).some((p) => p.id === role.playerId);
   const bystanderVote = isFfaBystander ? s.bets?.[role.playerId!.toString()] : null;
   const bystanderWon = isFfaBystander && bystanderVote
     ? (bystanderVote === 'miss'
@@ -136,6 +211,9 @@ export default function OnlineGame({
       sfx.tick();
     }
 
+    // "todos adivinan": cada uno ve solo su aguja, no se comparte en vivo
+    if (allGuessMode) return;
+
     if (pendingWrite.current) {
       clearTimeout(pendingWrite.current);
     }
@@ -159,9 +237,26 @@ export default function OnlineGame({
   const showTarget = (s.phase === 'psychic' && role.isPsychic) || s.phase === 'reveal';
   const dialOpen = showTarget;
   const showCardStrip =
-    s.card && ['psychic', 'clue', 'guess', 'rival-bet', 'reveal'].includes(s.phase);
+    s.card && ['psychic', 'clue', 'guess', 'guess-handoff', 'rival-bet', 'reveal'].includes(s.phase);
   const rows = ['standings', 'end'].includes(s.phase) ? buildRows(s) : [];
   const total = s.tiebreakKeys ? null : totalRounds(s);
+
+  const revealMarkers: DialMarker[] | null =
+    allGuessMode && s.phase === 'reveal'
+      ? allGuessers(s).map((p) => {
+          const angle = s.guesses?.[p.id.toString()] ?? 90;
+          return {
+            angle,
+            initials: initialsOf(p.name),
+            name: p.name,
+            colorIdx: colorIdx(s, `p${p.id}`),
+            pts: scoreFor(angle, s.target),
+          };
+        })
+      : null;
+  const psyGain = revealMarkers
+    ? s.lastGains.find((g) => g.key === `p${ffaPsychic(s).id}`)?.pts ?? 0
+    : 0;
 
   return (
     <>
@@ -203,12 +298,16 @@ export default function OnlineGame({
             open={dialOpen}
             interactive={controlling}
             onChange={onNeedle}
+            markers={revealMarkers}
+            showNeedle={!revealMarkers}
           />
           {s.phase === 'reveal' && s.lastPts === 4 && <Confetti />}
         </div>
       )}
 
       {s.phase === 'handoff' && <Waiting kicker={`Ronda ${s.round + 1}`} text={`Le toca de psíquico a ${psy}…`} />}
+
+      {s.phase === 'guess-handoff' && <Waiting kicker="Un momento" text="Preparando la ronda de adivinar…" />}
 
       {s.phase === 'card-pick' &&
         (role.isPsychic ? (
@@ -262,7 +361,9 @@ export default function OnlineGame({
       {s.phase === 'guess' &&
         (role.isGuesser ? (
           <section className="panel">
-            <p className="panel__kicker">Te toca</p>
+            <p className="panel__kicker">
+              {allGuessMode ? `Adivina ${guessesInCount + 1} de ${guessesTotalCount}` : 'Te toca'}
+            </p>
             {timeLeft !== null && (
               <div className={`panel__timer-large ${timeLeft <= 10 ? 'panel__timer-large--low' : ''}`}>
                 ⏱️ {timeLeft}s
@@ -279,6 +380,18 @@ export default function OnlineGame({
               Confirmar posición
             </button>
           </section>
+        ) : allGuessMode && myGuessDone ? (
+          <Waiting
+            kicker="Ya has adivinado"
+            text={`Esperando al resto… (${guessesInCount}/${guessesTotalCount})`}
+            timeLeft={timeLeft}
+          />
+        ) : allGuessMode ? (
+          <Waiting
+            kicker="Adivinando"
+            text={`Todos están moviendo su aguja a la vez… (${guessesInCount}/${guessesTotalCount})`}
+            timeLeft={timeLeft}
+          />
         ) : (
           <Waiting
             kicker="Adivinando"
@@ -302,7 +415,55 @@ export default function OnlineGame({
           />
         ))}
 
-      {s.phase === 'reveal' && (
+      {s.phase === 'reveal' && allGuessMode && revealMarkers && (
+        <section className="panel">
+          {timeLeft !== null && (
+            <div className={`panel__timer-large ${timeLeft <= 10 ? 'panel__timer-large--low' : ''}`}>
+              ⏱️ {timeLeft}s
+            </div>
+          )}
+          <p className={`reveal-points ${s.lastPts === 0 ? 'reveal-points--miss' : ''}`}>
+            {REVEAL_TEXT[s.lastPts]}
+          </p>
+          <p className="panel__text">
+            {s.tiebreakKeys ? (
+              'En muerte súbita solo puntúan los adivinadores.'
+            ) : psyGain > 0 ? (
+              <>
+                {psy} se lleva <b>+{psyGain}</b> por {psyGain === 1 ? 'un acertante' : `${psyGain} acertantes`}.
+              </>
+            ) : (
+              `Nadie ha caído en la zona: ${psy} se queda a cero.`
+            )}
+          </p>
+          <ul className="all-results">
+            {[...revealMarkers]
+              .sort((a, b) => b.pts - a.pts)
+              .map((m) => (
+                <li key={m.name} className={`all-results__item c${m.colorIdx}`}>
+                  <span className="all-results__badge">{m.initials}</span>
+                  <span className="all-results__name">{m.name}</span>
+                  <span className={`all-results__pts ${m.pts === 0 ? 'all-results__pts--miss' : ''}`}>
+                    {m.pts > 0 ? `+${m.pts}` : '0'}
+                  </span>
+                </li>
+              ))}
+          </ul>
+          <SkipVoteBar
+            isHost={isHost}
+            hasVoted={hasVotedToSkip}
+            votedCount={votedToSkipCount}
+            totalOnline={totalOnline}
+            requiredPct={s.options.skipVotePct ?? 50}
+            advanceMode={s.options.advanceMode ?? 'admin'}
+            onToggleVote={() => setSkipVote(!hasVotedToSkip)}
+            onHostAdvance={() => sendAction({ type: 'SHOW_STANDINGS' })}
+            advanceLabel="Ver clasificación"
+          />
+        </section>
+      )}
+
+      {s.phase === 'reveal' && !allGuessMode && (
         <section className="panel">
           {timeLeft !== null && (
             <div className={`panel__timer-large ${timeLeft <= 10 ? 'panel__timer-large--low' : ''}`}>
@@ -368,13 +529,17 @@ export default function OnlineGame({
               </ul>
             </div>
           )}
-          {isHost ? (
-            <button className="btn btn--primary" onClick={() => sendAction({ type: 'SHOW_STANDINGS' })}>
-              Ver clasificación
-            </button>
-          ) : (
-            <p className="end-config__hint" style={{ marginTop: '14px' }}>Esperando a que el anfitrión avance…</p>
-          )}
+          <SkipVoteBar
+            isHost={isHost}
+            hasVoted={hasVotedToSkip}
+            votedCount={votedToSkipCount}
+            totalOnline={totalOnline}
+            requiredPct={s.options.skipVotePct ?? 50}
+            advanceMode={s.options.advanceMode ?? 'admin'}
+            onToggleVote={() => setSkipVote(!hasVotedToSkip)}
+            onHostAdvance={() => sendAction({ type: 'SHOW_STANDINGS' })}
+            advanceLabel="Ver clasificación"
+          />
         </section>
       )}
 
@@ -383,25 +548,29 @@ export default function OnlineGame({
           <p className="panel__kicker">{s.tiebreakKeys ? '⚡ Muerte súbita' : `Ronda ${s.round + 1}`}</p>
           <h2 className="panel__title">Clasificación</h2>
           <ScoreTable rows={rows} />
-          {isHost ? (
-            <button className="btn btn--primary" onClick={() => sendAction({ type: 'NEXT_ROUND' })}>
-              {s.tiebreakKeys
+          <SkipVoteBar
+            isHost={isHost}
+            hasVoted={hasVotedToSkip}
+            votedCount={votedToSkipCount}
+            totalOnline={totalOnline}
+            requiredPct={s.options.skipVotePct ?? 50}
+            advanceMode={s.options.advanceMode ?? 'admin'}
+            onToggleVote={() => setSkipVote(!hasVotedToSkip)}
+            onHostAdvance={() => sendAction({ type: 'NEXT_ROUND' })}
+            advanceLabel={
+              s.tiebreakKeys
                 ? 'Continuar'
                 : isGameOver(s) && (leaders(s).length === 1 || !s.options.tiebreak || (s.mode === 'ffa' ? s.players.length : s.teams.length) <= 2)
                   ? 'Resultado final'
                   : isGameOver(s)
                     ? '⚡ ¡Desempate!'
-                    : 'Siguiente ronda'}
-            </button>
-          ) : (
-            <p className="end-config__hint" style={{ marginTop: '14px' }}>
-              {timeLeft !== null
-                ? `Seguimos solos en ${timeLeft}s…`
-                : 'Esperando a que el anfitrión inicie la siguiente ronda…'}
+                    : 'Siguiente ronda'
+            }
+          />
+          {timeLeft !== null && (
+            <p className="end-config__hint" style={{ marginTop: '10px' }}>
+              Seguimos solos en {timeLeft}s…
             </p>
-          )}
-          {isHost && timeLeft !== null && (
-            <p className="end-config__hint">Seguimos solos en {timeLeft}s…</p>
           )}
         </section>
       )}

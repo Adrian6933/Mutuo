@@ -91,6 +91,23 @@ export default function Game() {
     if (timeLeft === 0 && s.phase === 'guess') dispatch({ type: 'CONFIRM_GUESS' });
   }, [timeLeft, s.phase]);
 
+  const [revealLeft, setRevealLeft] = useState<number | null>(null);
+
+  // avance automático de los resultados a la clasificación
+  useEffect(() => {
+    if (s.phase !== 'reveal' || !s.options.revealSecs || s.options.revealSecs === 0) {
+      setRevealLeft(null);
+      return;
+    }
+    setRevealLeft(s.options.revealSecs);
+    const id = setInterval(() => setRevealLeft((t) => (t === null ? null : t - 1)), 1000);
+    return () => clearInterval(id);
+  }, [s.phase, s.round, s.options.revealSecs]);
+
+  useEffect(() => {
+    if (revealLeft === 0 && s.phase === 'reveal') dispatch({ type: 'SHOW_STANDINGS' });
+  }, [revealLeft, s.phase]);
+
   // avance automático de la clasificación a la siguiente ronda
   useEffect(() => {
     if (s.phase !== 'standings' || s.options.standingsSecs === 0) {
@@ -133,7 +150,7 @@ export default function Game() {
   const total = s.tiebreakKeys ? null : inRound || s.phase === 'standings' ? totalRounds(s) : null;
 
   // reveal de "todos adivinan": marcador por adivinador sobre el dial
-  const revealAll = s.phase === 'reveal' && s.mode === 'ffa-all';
+  const revealAll = s.phase === 'reveal' && s.mode === 'ffa' && s.options.allGuess;
   const markers: DialMarker[] | null = revealAll
     ? allGuessers(s).map((p) => {
         const angle = s.guesses?.[p.id.toString()] ?? 90;
@@ -168,6 +185,11 @@ export default function Game() {
             {timeLeft !== null && (
               <span className={`round-pill timer-pill ${timeLeft <= 10 ? 'timer-pill--low' : ''}`}>
                 ⏱ {timeLeft}s
+              </span>
+            )}
+            {revealLeft !== null && (
+              <span className={`round-pill timer-pill ${revealLeft <= 5 ? 'timer-pill--low' : ''}`}>
+                ⏱ {revealLeft}s
               </span>
             )}
             {s.mode === 'teams' &&
@@ -329,7 +351,7 @@ export default function Game() {
         {s.phase === 'guess' && (
           <section className="panel">
             <p className="panel__kicker">
-              {s.mode === 'ffa-all'
+              {s.mode === 'ffa' && s.options.allGuess
                 ? `${currentGuesser(s).name} · ${s.guesserIdx + 1}/${allGuessers(s).length}`
                 : guesserNames(s)}
             </p>
@@ -344,7 +366,7 @@ export default function Game() {
               </p>
             ) : (
               <p className="panel__text">
-                {s.mode === 'ffa-all'
+                {s.mode === 'ffa' && s.options.allGuess
                   ? 'Arrastra la aguja hasta donde creas que apunta la pista.'
                   : 'Arrastrad la aguja hasta donde creáis que apunta la pista.'}
               </p>
@@ -398,7 +420,7 @@ export default function Game() {
           </section>
         )}
 
-        {s.phase === 'reveal' && s.mode !== 'ffa-all' && (
+        {s.phase === 'reveal' && !revealAll && (
           <section className="panel">
             <p className={`reveal-points ${s.lastPts === 0 ? 'reveal-points--miss' : ''}`}>
               {REVEAL_TEXT[s.lastPts]} <b>+{s.lastPts}</b>
