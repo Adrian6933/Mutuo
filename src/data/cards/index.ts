@@ -12,6 +12,11 @@ import series from './series';
 import historia from './historia';
 import geografia from './geografia';
 import internet from './internet';
+import fiesta from './fiesta';
+import amigos from './amigos';
+import polemicas from './polemicas';
+import absurdo from './absurdo';
+import nostalgia from './nostalgia';
 
 export type BuiltinCategoryId =
   | 'clasicas'
@@ -27,7 +32,12 @@ export type BuiltinCategoryId =
   | 'series'
   | 'historia'
   | 'geografia'
-  | 'internet';
+  | 'internet'
+  | 'fiesta'
+  | 'amigos'
+  | 'polemicas'
+  | 'absurdo'
+  | 'nostalgia';
 
 /** Categoría creada por el jugador y guardada en su móvil (`custom:<id>`). */
 export type CustomCategoryId = `custom:${string}`;
@@ -61,6 +71,11 @@ export const CATEGORIES: { id: BuiltinCategoryId; label: string }[] = [
   { id: 'historia', label: 'Historia' },
   { id: 'geografia', label: 'Geografía' },
   { id: 'internet', label: 'Internet y memes' },
+  { id: 'fiesta', label: '🎉 Fiesta y noche' },
+  { id: 'amigos', label: '👯 Grupo de amigos' },
+  { id: 'polemicas', label: '🔥 Polémicas' },
+  { id: 'absurdo', label: '🤪 Absurdas' },
+  { id: 'nostalgia', label: '📼 Nostalgia' },
 ];
 
 /** carta de un tema: extremo izquierdo, extremo derecho y contexto opcional */
@@ -81,6 +96,11 @@ const RAW: Record<BuiltinCategoryId, RawCard[]> = {
   historia,
   geografia,
   internet,
+  fiesta,
+  amigos,
+  polemicas,
+  absurdo,
+  nostalgia,
 };
 
 export const CARDS: Card[] = CATEGORIES.flatMap((c) =>

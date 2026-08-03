@@ -39,7 +39,7 @@ import { shuffle, type CategoryId } from '../data/cards';
 import { sanitizeCategories } from './customCats';
 import { getProfile, setProfile } from './profile';
 import type { EndRule, GameState, Mode, Options } from './types';
-import { savePrefs, loadPrefs } from './storage';
+import { savePrefs, loadPrefs, saveRecentLobby, forgetRecentLobby } from './storage';
 
 /* ---- tipos de red ---- */
 
@@ -52,6 +52,8 @@ export type LobbyMeta = {
   hostUid: string;
   status: LobbyStatus;
   createdAt: number;
+  /** última señal de vida del anfitrión: con esto se sabe qué lobbies son basura */
+  updatedAt?: number;
   /** tope de jugadores conectados, o null/ausente si no hay límite */
   maxPlayers?: number | null;
 };
@@ -64,6 +66,8 @@ export type LobbyPlayer = {
   avatar?: string | null;
   /** frase del perfil, para la burbuja del marcador */
   bio?: string | null;
+  /** último latido: sirve para detectar los "online" que se quedaron colgados */
+  seen?: number;
   /** índice de equipo asignado por el host (modo equipos) */
   team?: number;
   /** orden de lista o de equipo asignado */
@@ -104,6 +108,23 @@ export type PublicLobby = {
 
 /** caras que se enseñan por lobby en la lista; a partir de ahí, puntos suspensivos */
 export const MAX_FACES = 5;
+
+/** cada cuánto avisa cada jugador de que sigue ahí */
+const HEARTBEAT_MS = 30_000;
+/** sin latido en este rato, no cuentas como conectado (margen para móviles en segundo plano) */
+const STALE_MS = 4 * 60_000;
+/** una lobby sin señales de vida en este rato es basura: cualquiera puede borrarla */
+const DEAD_MS = 60 * 60_000;
+
+/** Último momento en que se supo de un jugador (las lobbies viejas no tienen `seen`). */
+function lastSeen(p: LobbyPlayer): number {
+  return p.seen ?? p.joinedAt ?? 0;
+}
+
+/** ¿Está de verdad dentro? No basta con `online`: puede haberse quedado colgado. */
+export function isReallyOnline(p: LobbyPlayer, now = Date.now()): boolean {
+  return Boolean(p.online) && now - lastSeen(p) < STALE_MS;
+}
 
 export type Role = {
   playerId: number | null;
@@ -357,26 +378,40 @@ export function useLobby() {
     return () => offs.forEach((off) => off());
   }, [lobbyId]);
 
-  /* presencia */
+  /* presencia + latido: `seen` dice cuándo se supo de ti por última vez, así se distingue
+   * a quien está de verdad de un "online: true" que se quedó colgado. */
   useEffect(() => {
     if (!lobbyId || !uid) return;
     const db = getDb();
+    const meRef = ref(db, `lobbies/${lobbyId}/players/${uid}`);
     const onlineRef = ref(db, `lobbies/${lobbyId}/players/${uid}/online`);
+    const beat = () => {
+      void update(meRef, { online: true, seen: Date.now() });
+      // el anfitrión marca además la lobby entera: es la marca que mira la limpieza automática
+      if (isHost) void update(ref(db, `lobbies/${lobbyId}/meta`), { updatedAt: Date.now() });
+    };
     const off = onValue(ref(db, '.info/connected'), (s) => {
       if (s.val() === true) {
         void onDisconnect(onlineRef).set(false);
-        void set(onlineRef, true);
+        beat();
       }
     });
-    return () => off();
-  }, [lobbyId, uid]);
+    const id = setInterval(beat, HEARTBEAT_MS);
+    return () => {
+      off();
+      clearInterval(id);
+      // clave: si no se cancela, al cerrar la pestaña el servidor escribe igual en una lobby
+      // ya borrada y la resucita como fantasma (media base llena de restos por esto)
+      void onDisconnect(onlineRef).cancel();
+    };
+  }, [lobbyId, uid, isHost]);
 
   /* si soy el único dentro, la lobby se borra sola al cerrar la pestaña:
    * así no quedan lobbies vacías en la lista. En cuanto entra alguien más, se cancela. */
   useEffect(() => {
     if (!lobbyId || !uid || !isHost) return;
     const lobbyRef = ref(getDb(), `lobbies/${lobbyId}`);
-    const others = Object.entries(players).filter(([pUid, p]) => pUid !== uid && p.online).length;
+    const others = Object.entries(players).filter(([pUid, p]) => pUid !== uid && isReallyOnline(p)).length;
     if (others === 0) void onDisconnect(lobbyRef).remove();
     else void onDisconnect(lobbyRef).cancel();
     return () => {
@@ -410,9 +445,9 @@ export function useLobby() {
   useEffect(() => {
     if (!lobbyId || !uid || !meta || meta.hostUid === uid) return;
     const hostPlayer = players[meta.hostUid];
-    if (hostPlayer && hostPlayer.online) return;
+    if (hostPlayer && isReallyOnline(hostPlayer)) return;
     const candidates = Object.entries(players)
-      .filter(([, p]) => p.online)
+      .filter(([, p]) => isReallyOnline(p))
       .sort((a, b) => a[1].joinedAt - b[1].joinedAt);
     if (candidates.length === 0 || candidates[0]![0] !== uid) return;
     const t = setTimeout(() => {
@@ -655,6 +690,7 @@ export function useLobby() {
           hostUid: me,
           status: 'lobby',
           createdAt: Date.now(),
+          updatedAt: Date.now(),
           maxPlayers: opts.maxPlayers ?? null,
         };
         await set(ref(db, `lobbies/${id}`), {
@@ -666,6 +702,7 @@ export function useLobby() {
         });
         setError(null);
         setLobbyId(id);
+        saveRecentLobby({ id, name: meta.name, key: meta.key });
       },
 
       async joinLobby(id: string, key: string, playerName: string) {
@@ -676,6 +713,7 @@ export function useLobby() {
         const m = snap.val() as LobbyMeta | null;
         if (!m) {
           setError('No existe ninguna lobby con ese ID.');
+          forgetRecentLobby(clean);
           return;
         }
         if (!m.public && m.key !== key.trim()) {
@@ -687,7 +725,7 @@ export function useLobby() {
         const already = Boolean(roster[me]);
         // con la partida empezada también se puede entrar: el anfitrión mete a la gente nueva
         // en la clasificación, y quien vuelve conserva sus puntos (sigue en `assign`)
-        const connected = Object.values(roster).filter((p) => p.online).length;
+        const connected = Object.values(roster).filter((p) => isReallyOnline(p)).length;
         if (!already && m.maxPlayers && connected >= m.maxPlayers) {
           setError(`La lobby está llena (${connected}/${m.maxPlayers}).`);
           return;
@@ -705,6 +743,7 @@ export function useLobby() {
         }
         setError(null);
         setLobbyId(clean);
+        saveRecentLobby({ id: clean, name: m.name, key: m.key });
       },
 
       leave() {
@@ -721,7 +760,7 @@ export function useLobby() {
         const db = getDb();
         const m = metaRef.current;
         const others = Object.entries(playersRef.current)
-          .filter(([pUid, p]) => pUid !== me && p.online)
+          .filter(([pUid, p]) => pUid !== me && isReallyOnline(p))
           .sort((a, b) => a[1].joinedAt - b[1].joinedAt);
         void remove(ref(db, `lobbies/${id}/players/${me}`));
         if (m?.hostUid === me) {
@@ -796,7 +835,7 @@ export function useLobby() {
         const id = lobbyId;
         if (!id || metaRef.current?.hostUid !== uid) return;
         const db = getDb();
-        const onlineEntries = Object.entries(playersRef.current).filter(([, p]) => p.online);
+        const onlineEntries = Object.entries(playersRef.current).filter(([, p]) => isReallyOnline(p));
         const shuffled = shuffle(onlineEntries);
         const updates: Record<string, number> = {};
         shuffled.forEach(([pUid], idx) => {
@@ -809,7 +848,7 @@ export function useLobby() {
         const id = lobbyId;
         if (!id || metaRef.current?.hostUid !== uid) return;
         const db = getDb();
-        const onlineEntries = Object.entries(playersRef.current).filter(([, p]) => p.online);
+        const onlineEntries = Object.entries(playersRef.current).filter(([, p]) => isReallyOnline(p));
         const shuffled = shuffle(onlineEntries);
         const updates: Record<string, number> = {};
         shuffled.forEach(([pUid], idx) => {
@@ -824,7 +863,7 @@ export function useLobby() {
         const id = lobbyId;
         if (!id || metaRef.current?.hostUid !== uid) return;
         const db = getDb();
-        const onlineEntries = Object.entries(playersRef.current).filter(([, p]) => p.online);
+        const onlineEntries = Object.entries(playersRef.current).filter(([, p]) => isReallyOnline(p));
         const teamsMap = new Map<number, [string, LobbyPlayer][]>();
         for (const e of onlineEntries) {
           const t = e[1].team ?? 0;
@@ -848,7 +887,7 @@ export function useLobby() {
         if (!id || !conf || metaRef.current?.hostUid !== me) return false;
         const db = getDb();
         const entries = Object.entries(playersRef.current)
-          .filter(([, p]) => p.online)
+          .filter(([, p]) => isReallyOnline(p))
           .sort((a, b) => (a[1].order ?? a[1].joinedAt) - (b[1].order ?? b[1].joinedAt));
         const assignMap: Record<string, number> = {};
         let base: GameState = {
@@ -949,7 +988,9 @@ export function useLobby() {
         const q = query(ref(db, 'lobbies'), orderByChild('meta/public'), equalTo(true));
         const snap = await get(q);
         const out: PublicLobby[] = [];
-        const dayAgo = Date.now() - 24 * 3600 * 1000;
+        const now = Date.now();
+        const dayAgo = now - 24 * 3600 * 1000;
+        const basura: string[] = [];
         snap.forEach((child) => {
           const v = child.val() as {
             meta: LobbyMeta;
@@ -957,10 +998,17 @@ export function useLobby() {
             config?: NetConfig;
             game?: Partial<GameState> | null;
           };
+          // última señal de vida de la lobby: el latido más reciente de cualquiera
+          const beats = Object.values(v.players ?? {}).map(lastSeen);
+          const alive = Math.max(v.meta?.createdAt ?? 0, ...(beats.length > 0 ? beats : [0]));
+          if (now - alive > DEAD_MS) {
+            basura.push(child.key!);
+            return;
+          }
           if (!v.meta || v.meta.createdAt <= dayAgo) return;
           const playing = v.meta.status === 'playing';
           const connected = Object.values(v.players ?? {})
-            .filter((p) => p.online)
+            .filter((p) => isReallyOnline(p, now))
             .sort((a, b) => a.joinedAt - b.joinedAt);
           // lobby fantasma: se creó y se fueron todos, no tiene sentido enseñarla
           if (connected.length === 0) return;
@@ -994,11 +1042,72 @@ export function useLobby() {
             tiebreak,
           });
         });
+        // recogida de basura: las lobbies sin señales de vida se borran solas (unas pocas por
+        // pasada para no liarla). Necesita las reglas nuevas; si no, falla en silencio.
+        for (const dead of basura.slice(0, 8)) {
+          remove(ref(db, `lobbies/${dead}`)).catch(() => {});
+        }
         // primero las que aún no han empezado: son las más fáciles de aprovechar
         return out
           .reverse()
           .sort((a, b) => Number(a.status === 'playing') - Number(b.status === 'playing'))
           .slice(0, 20);
+      },
+
+      /** Estado actual de unas lobbies concretas (para el historial de "donde has jugado"). */
+      async lobbyStatus(ids: string[]): Promise<Record<string, PublicLobby | null>> {
+        const db = getDb();
+        const now = Date.now();
+        const pairs = await Promise.all(
+          ids.slice(0, 12).map(async (id) => {
+            try {
+              const snap = await get(ref(db, `lobbies/${id}`));
+              const v = snap.val() as {
+                meta?: LobbyMeta;
+                players?: Record<string, LobbyPlayer>;
+                config?: NetConfig;
+                game?: Partial<GameState> | null;
+              } | null;
+              if (!v?.meta) return [id, null] as const;
+              const connected = Object.values(v.players ?? {})
+                .filter((p) => isReallyOnline(p, now))
+                .sort((a, b) => a.joinedAt - b.joinedAt);
+              if (connected.length === 0) return [id, null] as const;
+              const playing = v.meta.status === 'playing';
+              let round: number | null = null;
+              let total: number | null = null;
+              let goal: number | null = null;
+              let tiebreak = false;
+              if (playing) {
+                const g = normalizeGame(v.game ?? null);
+                if (!g || g.phase === 'end') return [id, null] as const;
+                round = g.round + 1;
+                tiebreak = Boolean(g.tiebreakKeys);
+                total = tiebreak ? null : totalRounds(g);
+                goal = g.endRule.kind === 'points' ? g.endRule.goal : null;
+              }
+              const lobby: PublicLobby = {
+                id,
+                name: v.meta.name,
+                players: connected.length,
+                mode: v.config?.mode ?? 'ffa',
+                maxPlayers: v.meta.maxPlayers ?? null,
+                faces: connected
+                  .slice(0, MAX_FACES)
+                  .map((p) => ({ name: p.name, avatar: p.avatar ?? null })),
+                status: playing ? 'playing' : 'lobby',
+                round,
+                total,
+                goal,
+                tiebreak,
+              };
+              return [id, lobby] as const;
+            } catch {
+              return [id, null] as const;
+            }
+          })
+        );
+        return Object.fromEntries(pairs);
       },
 
       backToLobby() {
@@ -1029,7 +1138,7 @@ export function useLobby() {
 
     const onlineBystanders = Object.entries(players)
       .filter(([pUid, p]) => {
-        if (!p.online) return false;
+        if (!isReallyOnline(p)) return false;
         const pId = asg[pUid];
         return pId !== undefined && pId !== null && ffaBystanders(game).some((b) => b.id === pId);
       });
@@ -1061,7 +1170,7 @@ export function useLobby() {
       const teamsWithPeople = guessingTeams(game).filter((t) =>
         Object.entries(players).some(([pUid, p]) => {
           const pId = asg[pUid];
-          return p.online && pId !== undefined && t.players.some((tp) => tp.id === pId);
+          return isReallyOnline(p) && pId !== undefined && t.players.some((tp) => tp.id === pId);
         })
       );
       // sin nadie conectado a quien esperar, se cierra la ronda igual (agujas al centro)
@@ -1069,7 +1178,7 @@ export function useLobby() {
     } else {
       const gs = allGuessers(game);
       const onlineGuessers = Object.entries(players).filter(([pUid, p]) => {
-        if (!p.online) return false;
+        if (!isReallyOnline(p)) return false;
         const pId = asg[pUid];
         return pId !== undefined && pId !== null && gs.some((g) => g.id === pId);
       });
@@ -1096,7 +1205,7 @@ export function useLobby() {
     if (!lobbyId || !uid || !isHost || !game || game.phase !== 'standings') return;
     const asg = assign ?? {};
     const pending = Object.entries(players).filter(
-      ([pUid, p]) => p.online && asg[pUid] === undefined && !lateAdded.current.has(pUid)
+      ([pUid, p]) => isReallyOnline(p) && asg[pUid] === undefined && !lateAdded.current.has(pUid)
     );
     if (pending.length === 0) return;
 
@@ -1130,7 +1239,7 @@ export function useLobby() {
     if (!['reveal', 'standings'].includes(game.phase)) return;
     if (game.options.advanceMode !== 'vote') return;
 
-    const onlinePlayers = Object.entries(players).filter(([, p]) => p.online);
+    const onlinePlayers = Object.entries(players).filter(([, p]) => isReallyOnline(p));
     const totalOnline = onlinePlayers.length;
     if (totalOnline === 0) return;
 

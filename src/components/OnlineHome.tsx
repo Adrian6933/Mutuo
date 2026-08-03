@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Mode } from '../game/types';
 import type { PublicLobby } from '../game/online';
 import MaxPlayersPicker from './MaxPlayers';
 import { MAX_NAME, profileName, setProfile, useProfile } from '../game/profile';
+import { forgetRecentLobby, loadRecentLobbies, type RecentLobby } from '../game/storage';
 import Avatar from './Avatar';
 
 type Props = {
   error: string | null;
+  lobbyStatus: (ids: string[]) => Promise<Record<string, PublicLobby | null>>;
   onCreate: (opts: {
     lobbyName: string;
     playerName: string;
@@ -19,7 +21,90 @@ type Props = {
   onExit: () => void;
 };
 
-export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit }: Props) {
+/** Tarjeta de una lobby: estado, por qué ronda va y quién está dentro. */
+function LobbyItem({
+  l,
+  onJoin,
+  onForget,
+}: {
+  l: PublicLobby;
+  onJoin: () => void;
+  onForget?: () => void;
+}) {
+  const full = l.maxPlayers !== null && l.players >= l.maxPlayers;
+  const playing = l.status === 'playing';
+  // cómo va la partida, para saber si merece la pena entrar ahora
+  const progress = !playing
+    ? null
+    : l.tiebreak
+      ? '⚡ desempate'
+      : l.total !== null
+        ? `ronda ${l.round}/${l.total} · quedan ${Math.max(0, l.total - (l.round ?? 0))}`
+        : l.goal !== null
+          ? `ronda ${l.round} · meta ${l.goal} puntos`
+          : `ronda ${l.round}`;
+
+  return (
+    <div className="lobby-item-wrap">
+      <button
+        className={`lobby-item ${full ? 'lobby-item--full' : ''} ${
+          playing ? 'lobby-item--playing' : ''
+        }`}
+        onClick={onJoin}
+        disabled={full}
+      >
+        <span className="lobby-item__name">
+          {l.name}
+          <span className={`lobby-tag ${playing ? 'lobby-tag--live' : ''}`}>
+            {playing ? '● En juego' : 'Esperando'}
+          </span>
+        </span>
+        <span className="lobby-item__info">
+          {l.mode === 'ffa' ? 'Todos contra todos' : 'Equipos'} · {l.players}
+          {l.maxPlayers !== null ? `/${l.maxPlayers}` : ''}{' '}
+          {l.players === 1 && l.maxPlayers === null ? 'jugador' : 'jugadores'} · {l.id}
+          {full ? ' · llena' : ''}
+        </span>
+        {progress && (
+          <span className="lobby-item__info lobby-item__progress">
+            {progress} · entras en la siguiente ronda
+          </span>
+        )}
+        {l.faces.length > 0 && (
+          <span className="lobby-item__faces">
+            {l.faces.map((f, i) => (
+              <Avatar key={`${f.name}-${i}`} name={f.name} avatar={f.avatar} size={24} colorIdx={i % 6} />
+            ))}
+            {l.players > l.faces.length && (
+              <span className="lobby-item__more" title={`y ${l.players - l.faces.length} más`}>
+                …
+              </span>
+            )}
+          </span>
+        )}
+      </button>
+      {onForget && (
+        <button
+          className="lobby-item__forget"
+          onClick={onForget}
+          title="Quitar del historial"
+          aria-label={`Quitar ${l.name} del historial`}
+        >
+          ✕
+        </button>
+      )}
+    </div>
+  );
+}
+
+export default function OnlineHome({
+  error,
+  lobbyStatus,
+  onCreate,
+  onJoin,
+  listPublic,
+  onExit,
+}: Props) {
   const profile = useProfile();
   const [tab, setTab] = useState<'join' | 'create'>('join');
   const [lobbyName, setLobbyName] = useState('');
@@ -29,17 +114,41 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
   const [joinId, setJoinId] = useState('');
   const [joinKey, setJoinKey] = useState('');
   const [lobbies, setLobbies] = useState<PublicLobby[] | null>(null);
+  const [recent, setRecent] = useState<RecentLobby[]>([]);
+  const [recentLive, setRecentLive] = useState<Record<string, PublicLobby | null>>({});
+
+  useEffect(() => {
+    setRecent(loadRecentLobbies());
+  }, []);
 
   useEffect(() => {
     let alive = true;
-    const load = () => listPublic().then((l) => alive && setLobbies(l)).catch(() => {});
+    const load = () => {
+      void listPublic().then((l) => alive && setLobbies(l)).catch(() => {});
+      const ids = loadRecentLobbies().map((l) => l.id);
+      if (ids.length > 0) {
+        void lobbyStatus(ids)
+          .then((r) => alive && setRecentLive(r))
+          .catch(() => {});
+      }
+    };
     load();
     const id = setInterval(load, 5000);
     return () => {
       alive = false;
       clearInterval(id);
     };
-  }, [listPublic]);
+  }, [listPublic, lobbyStatus]);
+
+  const olvidar = useCallback((id: string) => {
+    forgetRecentLobby(id);
+    setRecent(loadRecentLobbies());
+  }, []);
+
+  // solo las que siguen vivas: si no hay nadie dentro, no tiene sentido enseñarlas
+  const recentAlive = recent
+    .map((r) => ({ ...r, live: recentLive[r.id] ?? null }))
+    .filter((r) => r.live !== null);
 
   const name = profileName(profile);
 
@@ -86,70 +195,29 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
             {lobbies !== null && lobbies.length === 0 && (
               <p className="end-config__hint">No hay lobbies públicas ahora mismo. ¡Crea una!</p>
             )}
-            {lobbies?.map((l) => {
-              const full = l.maxPlayers !== null && l.players >= l.maxPlayers;
-              const playing = l.status === 'playing';
-              // cómo va la partida, para saber si merece la pena entrar ahora
-              const progress = !playing
-                ? null
-                : l.tiebreak
-                  ? '⚡ desempate'
-                  : l.total !== null
-                    ? `ronda ${l.round}/${l.total} · quedan ${Math.max(0, l.total - (l.round ?? 0))}`
-                    : l.goal !== null
-                      ? `ronda ${l.round} · meta ${l.goal} puntos`
-                      : `ronda ${l.round}`;
-              return (
-                <button
-                  key={l.id}
-                  className={`lobby-item ${full ? 'lobby-item--full' : ''} ${
-                    playing ? 'lobby-item--playing' : ''
-                  }`}
-                  onClick={() => onJoin(l.id, '', name)}
-                  disabled={full}
-                >
-                  <span className="lobby-item__name">
-                    {l.name}
-                    <span className={`lobby-tag ${playing ? 'lobby-tag--live' : ''}`}>
-                      {playing ? '● En juego' : 'Esperando'}
-                    </span>
-                  </span>
-                  <span className="lobby-item__info">
-                    {l.mode === 'ffa' ? 'Todos contra todos' : 'Equipos'} · {l.players}
-                    {l.maxPlayers !== null ? `/${l.maxPlayers}` : ''}{' '}
-                    {l.players === 1 && l.maxPlayers === null ? 'jugador' : 'jugadores'} · {l.id}
-                    {full ? ' · llena' : ''}
-                  </span>
-                  {progress && (
-                    <span className="lobby-item__info lobby-item__progress">
-                      {progress} · entras en la siguiente ronda
-                    </span>
-                  )}
-                  {l.faces.length > 0 && (
-                    <span className="lobby-item__faces">
-                      {l.faces.map((f, i) => (
-                        <Avatar
-                          key={`${f.name}-${i}`}
-                          name={f.name}
-                          avatar={f.avatar}
-                          size={24}
-                          colorIdx={i % 6}
-                        />
-                      ))}
-                      {l.players > l.faces.length && (
-                        <span
-                          className="lobby-item__more"
-                          title={`y ${l.players - l.faces.length} más`}
-                        >
-                          …
-                        </span>
-                      )}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+            {lobbies?.map((l) => (
+              <LobbyItem key={l.id} l={l} onJoin={() => onJoin(l.id, '', name)} />
+            ))}
           </div>
+
+          {recentAlive.length > 0 && (
+            <>
+              <p className="panel__kicker panel__kicker--sub">Donde has jugado</p>
+              <p className="end-config__hint">
+                Solo salen las que siguen en marcha ahora mismo. Si se vacían, desaparecen solas.
+              </p>
+              <div className="lobby-list">
+                {recentAlive.map((r) => (
+                  <LobbyItem
+                    key={r.id}
+                    l={r.live!}
+                    onJoin={() => onJoin(r.id, r.key ?? '', name)}
+                    onForget={() => olvidar(r.id)}
+                  />
+                ))}
+              </div>
+            </>
+          )}
           <form
             className="join-form"
             onSubmit={(e) => {

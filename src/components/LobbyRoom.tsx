@@ -176,7 +176,7 @@ export default function LobbyRoom({
       </button>
 
       {isHost && (
-        <div className="seg" style={{ marginBottom: '12px' }}>
+        <div className="seg seg--grid" style={{ marginBottom: '12px' }}>
           {LOBBY_MODES.map((m) => {
             const on =
               config.mode === m.mode &&

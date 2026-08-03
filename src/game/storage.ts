@@ -34,6 +34,50 @@ export function clearState(): void {
   }
 }
 
+/* ---- historial de lobbies: para volver a entrar en las que sigan vivas ---- */
+
+const RECENT_KEY = 'frecuencia-lobbies-v1';
+const MAX_RECENT = 8;
+
+export type RecentLobby = {
+  id: string;
+  name: string;
+  /** clave de las privadas, para poder volver sin pedirla otra vez */
+  key: string | null;
+  at: number;
+};
+
+export function loadRecentLobbies(): RecentLobby[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw) as RecentLobby[];
+    if (!Array.isArray(list)) return [];
+    return list.filter((l) => l && typeof l.id === 'string').slice(0, MAX_RECENT);
+  } catch {
+    return [];
+  }
+}
+
+export function saveRecentLobby(entry: Omit<RecentLobby, 'at'>): void {
+  try {
+    const list = loadRecentLobbies().filter((l) => l.id !== entry.id);
+    list.unshift({ ...entry, at: Date.now() });
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, MAX_RECENT)));
+  } catch {
+    // sin persistencia: no pasa nada, es solo un atajo
+  }
+}
+
+export function forgetRecentLobby(id: string): void {
+  try {
+    const list = loadRecentLobbies().filter((l) => l.id !== id);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {
+    // nada que limpiar
+  }
+}
+
 type AllPrefs = Partial<Record<Mode, ModePrefs>>;
 
 export function savePrefs(mode: Mode, prefs: ModePrefs): void {

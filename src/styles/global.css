@@ -2178,9 +2178,23 @@ body {
   margin-top: 4px;
 }
 
-/* el selector de modo de la lobby ya tiene 4 opciones */
+/* con 3-4 opciones el pill de una fila no cabe: se reparte en rejilla y se cuadra
+   (antes se partía en dos filas descolocadas y quedaba fatal en móvil) */
 .seg {
   flex-wrap: wrap;
+}
+
+.seg--grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  border-radius: 20px;
+}
+
+.seg--grid .seg__opt {
+  padding: 9px 10px;
+  text-align: center;
+  border-radius: 14px;
+  line-height: 1.15;
 }
 
 .all-results__item--me {
@@ -2376,10 +2390,15 @@ body {
 
 .seg--wrap {
   flex-wrap: wrap;
+  border-radius: 20px;
 }
 
 .seg--wrap .seg__opt {
   flex: 1 1 30%;
+  text-align: center;
+  border-radius: 14px;
+  padding: 9px 10px;
+  line-height: 1.15;
 }
 
 /* ---- responsive: ajustes y lobby en móvil ---- */
@@ -2499,4 +2518,45 @@ body {
   background: var(--red);
   border-color: var(--red);
   color: var(--paper);
+}
+
+/* ---- historial de lobbies recientes ---- */
+
+.lobby-item-wrap {
+  position: relative;
+  display: flex;
+  width: 100%;
+}
+
+.lobby-item-wrap .lobby-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.lobby-item__forget {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.lobby-item__forget:hover {
+  opacity: 1;
+  background: var(--red);
+  border-color: var(--red);
+  color: var(--paper);
+}
+
+.lobby-item__name {
+  padding-right: 26px;
 }

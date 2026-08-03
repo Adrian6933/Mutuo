@@ -3,11 +3,13 @@
     ".read": false,
     ".write": false,
     "lobbies": {
-      ".indexOn": ["meta/public"],
+      ".indexOn": [
+        "meta/public"
+      ],
       ".read": "auth != null",
       "$lobbyId": {
         "meta": {
-          ".write": "auth != null && (!data.exists() || data.child('hostUid').val() === auth.uid || newData.child('hostUid').val() === auth.uid)"
+          ".write": "auth != null && (!data.exists() || data.child('hostUid').val() === auth.uid || (newData.child('hostUid').val() === auth.uid && (!root.child('lobbies').child($lobbyId).child('players').child(data.child('hostUid').val()).exists() || root.child('lobbies').child($lobbyId).child('players').child(data.child('hostUid').val()).child('online').val() != true || root.child('lobbies').child($lobbyId).child('players').child(data.child('hostUid').val()).child('seen').val() < (now - 240000))))"
         },
         "config": {
           ".write": "auth != null && root.child('lobbies').child($lobbyId).child('meta/hostUid').val() === auth.uid"
@@ -29,7 +31,7 @@
         "live": {
           ".write": "auth != null && root.child('lobbies').child($lobbyId).child('players').child(auth.uid).exists()"
         },
-        ".write": "auth != null && (!data.exists() || root.child('lobbies').child($lobbyId).child('meta/hostUid').val() === auth.uid)"
+        ".write": "auth != null && (!data.exists() || root.child('lobbies').child($lobbyId).child('meta/hostUid').val() === auth.uid || (!newData.exists() && (data.child('meta/updatedAt').val() < (now - 3600000) || (!data.child('meta/updatedAt').exists() && (!data.child('meta/createdAt').exists() || data.child('meta/createdAt').val() < (now - 3600000))))))"
       }
     }
   }
