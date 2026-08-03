@@ -88,20 +88,43 @@ export default function OnlineHome({ error, onCreate, onJoin, listPublic, onExit
             )}
             {lobbies?.map((l) => {
               const full = l.maxPlayers !== null && l.players >= l.maxPlayers;
+              const playing = l.status === 'playing';
+              // cómo va la partida, para saber si merece la pena entrar ahora
+              const progress = !playing
+                ? null
+                : l.tiebreak
+                  ? '⚡ desempate'
+                  : l.total !== null
+                    ? `ronda ${l.round}/${l.total} · quedan ${Math.max(0, l.total - (l.round ?? 0))}`
+                    : l.goal !== null
+                      ? `ronda ${l.round} · meta ${l.goal} puntos`
+                      : `ronda ${l.round}`;
               return (
                 <button
                   key={l.id}
-                  className={`lobby-item ${full ? 'lobby-item--full' : ''}`}
+                  className={`lobby-item ${full ? 'lobby-item--full' : ''} ${
+                    playing ? 'lobby-item--playing' : ''
+                  }`}
                   onClick={() => onJoin(l.id, '', name)}
                   disabled={full}
                 >
-                  <span className="lobby-item__name">{l.name}</span>
+                  <span className="lobby-item__name">
+                    {l.name}
+                    <span className={`lobby-tag ${playing ? 'lobby-tag--live' : ''}`}>
+                      {playing ? '● En juego' : 'Esperando'}
+                    </span>
+                  </span>
                   <span className="lobby-item__info">
                     {l.mode === 'ffa' ? 'Todos contra todos' : 'Equipos'} · {l.players}
                     {l.maxPlayers !== null ? `/${l.maxPlayers}` : ''}{' '}
                     {l.players === 1 && l.maxPlayers === null ? 'jugador' : 'jugadores'} · {l.id}
                     {full ? ' · llena' : ''}
                   </span>
+                  {progress && (
+                    <span className="lobby-item__info lobby-item__progress">
+                      {progress} · entras en la siguiente ronda
+                    </span>
+                  )}
                   {l.faces.length > 0 && (
                     <span className="lobby-item__faces">
                       {l.faces.map((f, i) => (

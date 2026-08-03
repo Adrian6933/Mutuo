@@ -94,9 +94,13 @@ export default function Dial({
   const [selMarker, setSelMarker] = useState<number | null>(null);
   const wasOpen = useRef(open);
 
+  // huella de los marcadores: cambia de ronda, no en cada repintado (si no, la burbuja
+  // con el nombre se cerraba sola cada vez que corría el temporizador)
+  const markersSig = (markers ?? []).map((m) => `${m.playerId ?? m.name}@${m.angle}`).join('|');
+
   useEffect(() => {
     setSelMarker(null);
-  }, [markers]);
+  }, [markersSig]);
 
   useEffect(() => {
     const was = wasOpen.current;

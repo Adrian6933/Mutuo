@@ -2,7 +2,7 @@ import type React from 'react';
 import { CATEGORIES, isCustomCat, type CategoryId } from '../data/cards';
 import { ALL_CATEGORIES, MAX_GOAL, MAX_LAPS } from '../game/reducer';
 import { catIdOf, useCustomCats } from '../game/customCats';
-import type { EndRule, Mode, Options } from '../game/types';
+import type { EndRule, Mode, Options, TiebreakMode } from '../game/types';
 
 type PlayerRowProps = {
   name: string;
@@ -257,15 +257,88 @@ export function ToggleRow({ label, hint, checked, onChange }: ToggleProps) {
 }
 
 const TIMER_OPTIONS: Options['timerSecs'][] = [0, 15, 20, 30];
+const CLUE_OPTIONS: Options['clueSecs'][] = [0, 15, 25, 40];
 const REVEAL_OPTIONS: Options['revealSecs'][] = [0, 5, 10, 15];
 const STANDINGS_OPTIONS: Options['standingsSecs'][] = [0, 8, 15];
 const VOTE_PCT_OPTIONS: Options['skipVotePct'][] = [50, 60, 75, 100];
+
+const TIEBREAK_MODES: { id: TiebreakMode; label: string; hint: string }[] = [
+  {
+    id: 'sudden',
+    label: 'Muerte súbita',
+    hint: 'Los empatados siguen jugando entre ellos (uno da la pista y los demás adivinan) hasta que alguien se destaque.',
+  },
+  {
+    id: 'clues',
+    label: 'Ellos dan la pista',
+    hint: 'Cada empatado da una pista por turno y adivinan los eliminados. Se lleva todos los puntos que saquen sus acertantes: si con la tuya suman 20 y con la del otro 18, ganas tú.',
+  },
+  {
+    id: 'duel',
+    label: 'Pista de un eliminado',
+    hint: 'Un eliminado al azar da la pista y solo adivinan los empatados. Gana quien más puntos saque con esa pista.',
+  },
+];
 
 type ExtrasProps = {
   mode: Mode;
   options: Options;
   onChange: (options: Partial<Options>) => void;
 };
+
+/** Fila de ajuste con atajos en segundos y un hueco para escribir otro valor. */
+function SecondsRow({
+  label,
+  hint,
+  value,
+  presets,
+  max,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  value: number;
+  presets: number[];
+  max: number;
+  onChange: (secs: number) => void;
+}) {
+  const isCustom = !presets.includes(value);
+  return (
+    <div className="toggle-row toggle-row--static">
+      <span className="toggle-row__text">
+        <span className="toggle-row__label">{label}</span>
+        <span className="toggle-row__hint">{hint}</span>
+      </span>
+      <span className="chip-row chip-row--tight">
+        {presets.map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={`chip chip--mini ${value === t ? 'chip--on' : ''}`}
+            onClick={() => onChange(t)}
+          >
+            {t === 0 ? 'Off' : `${t}s`}
+          </button>
+        ))}
+        <div className="custom-timer-input-wrap">
+          <input
+            type="number"
+            className={`input custom-timer-input ${isCustom ? 'custom-timer-input--on' : ''}`}
+            value={isCustom ? value : ''}
+            placeholder="Pers."
+            min={1}
+            max={max}
+            aria-label={`${label}: segundos personalizados`}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              onChange(Number.isNaN(n) ? 0 : Math.max(1, Math.min(max, n)));
+            }}
+          />
+        </div>
+      </span>
+    </div>
+  );
+}
 
 export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
   return (
@@ -283,7 +356,18 @@ export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
           onChange={(v) => onChange({ allGuess: v })}
         />
       )}
-      {(mode === 'teams' || (mode === 'ffa' && !options.allGuess)) && (
+      {mode === 'teams' && (
+        <ToggleRow
+          label="Todos los equipos adivinan"
+          hint={
+            'Cada equipo coloca su propia aguja a la vez y puntúa por su cercanía. El equipo que da la pista puntúa x3, ' +
+            'porque tiene la ventaja de conocer a su psíquico. Con esto activado no hay apuesta de lado.'
+          }
+          checked={options.teamsAllGuess}
+          onChange={(v) => onChange({ teamsAllGuess: v })}
+        />
+      )}
+      {((mode === 'teams' && !options.teamsAllGuess) || (mode === 'ffa' && !options.allGuess)) && (
         <ToggleRow
           label={mode === 'teams' ? 'Apuesta rival' : 'Apuesta de lado'}
           hint={
@@ -295,117 +379,38 @@ export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
           onChange={(v) => onChange({ rivalBet: v })}
         />
       )}
-      <div className="toggle-row toggle-row--static">
-        <span className="toggle-row__text">
-          <span className="toggle-row__label">Temporizador para adivinar</span>
-          <span className="toggle-row__hint">A cero, la aguja se queda donde esté.</span>
-        </span>
-        <span className="chip-row chip-row--tight">
-          {TIMER_OPTIONS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={`chip chip--mini ${options.timerSecs === t ? 'chip--on' : ''}`}
-              onClick={() => onChange({ timerSecs: t })}
-            >
-              {t === 0 ? 'Off' : `${t}s`}
-            </button>
-          ))}
-          <div className="custom-timer-input-wrap">
-            <input
-              type="number"
-              className="input custom-timer-input"
-              value={!TIMER_OPTIONS.includes(options.timerSecs) ? options.timerSecs : ''}
-              placeholder="Pers."
-              min={1}
-              max={50}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10);
-                if (!isNaN(val)) {
-                  onChange({ timerSecs: Math.max(1, Math.min(50, val)) });
-                } else {
-                  onChange({ timerSecs: 0 });
-                }
-              }}
-            />
-          </div>
-        </span>
-      </div>
-      <div className="toggle-row toggle-row--static">
-        <span className="toggle-row__text">
-          <span className="toggle-row__label">Temporizador para ver resultados</span>
-          <span className="toggle-row__hint">A cero, la pantalla de resultados no se pasa sola.</span>
-        </span>
-        <span className="chip-row chip-row--tight">
-          {REVEAL_OPTIONS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={`chip chip--mini ${options.revealSecs === t ? 'chip--on' : ''}`}
-              onClick={() => onChange({ revealSecs: t })}
-            >
-              {t === 0 ? 'Off' : `${t}s`}
-            </button>
-          ))}
-          <div className="custom-timer-input-wrap">
-            <input
-              type="number"
-              className="input custom-timer-input"
-              value={!REVEAL_OPTIONS.includes(options.revealSecs) ? options.revealSecs : ''}
-              placeholder="Pers."
-              min={1}
-              max={60}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10);
-                if (!isNaN(val)) {
-                  onChange({ revealSecs: Math.max(1, Math.min(60, val)) });
-                } else {
-                  onChange({ revealSecs: 0 });
-                }
-              }}
-            />
-          </div>
-        </span>
-      </div>
-      <div className="toggle-row toggle-row--static">
-        <span className="toggle-row__text">
-          <span className="toggle-row__label">Avanzar de ronda solo</span>
-          <span className="toggle-row__hint">
-            Al ver la clasificación, pasa a la siguiente ronda sin esperar a que alguien pulse el
-            botón.
-          </span>
-        </span>
-        <span className="chip-row chip-row--tight">
-          {STANDINGS_OPTIONS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={`chip chip--mini ${options.standingsSecs === t ? 'chip--on' : ''}`}
-              onClick={() => onChange({ standingsSecs: t })}
-            >
-              {t === 0 ? 'Off' : `${t}s`}
-            </button>
-          ))}
-          <div className="custom-timer-input-wrap">
-            <input
-              type="number"
-              className="input custom-timer-input"
-              value={!STANDINGS_OPTIONS.includes(options.standingsSecs) ? options.standingsSecs : ''}
-              placeholder="Pers."
-              min={1}
-              max={60}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10);
-                if (!isNaN(val)) {
-                  onChange({ standingsSecs: Math.max(1, Math.min(60, val)) });
-                } else {
-                  onChange({ standingsSecs: 0 });
-                }
-              }}
-            />
-          </div>
-        </span>
-      </div>
+      <SecondsRow
+        label="Tiempo para dar la pista"
+        hint="A cero se pasa solo a adivinar, con lo que haya escrito el psíquico. Off = sin prisa."
+        value={options.clueSecs ?? 25}
+        presets={CLUE_OPTIONS}
+        max={180}
+        onChange={(clueSecs) => onChange({ clueSecs })}
+      />
+      <SecondsRow
+        label="Temporizador para adivinar"
+        hint="A cero, la aguja se queda donde esté."
+        value={options.timerSecs}
+        presets={TIMER_OPTIONS}
+        max={180}
+        onChange={(timerSecs) => onChange({ timerSecs })}
+      />
+      <SecondsRow
+        label="Temporizador para ver resultados"
+        hint="A cero, la pantalla de resultados no se pasa sola."
+        value={options.revealSecs}
+        presets={REVEAL_OPTIONS}
+        max={60}
+        onChange={(revealSecs) => onChange({ revealSecs })}
+      />
+      <SecondsRow
+        label="Avanzar de ronda solo"
+        hint="Al ver la clasificación, pasa a la siguiente ronda sin esperar a que alguien pulse el botón."
+        value={options.standingsSecs}
+        presets={STANDINGS_OPTIONS}
+        max={60}
+        onChange={(standingsSecs) => onChange({ standingsSecs })}
+      />
       <div className="toggle-row toggle-row--static">
         <span className="toggle-row__text">
           <span className="toggle-row__label">Modo para pasar de fase</span>
@@ -454,10 +459,38 @@ export function ExtrasConfig({ mode, options, onChange }: ExtrasProps) {
       )}
       <ToggleRow
         label="Desempate automático"
-        hint="Si hay empate al final, muerte súbita entre los empatados."
+        hint="Si al acabar hay empate arriba, se juegan rondas extra hasta que alguien se destaque."
         checked={options.tiebreak}
         onChange={(v) => onChange({ tiebreak: v })}
       />
+      {options.tiebreak && mode === 'ffa' && !options.coop && !options.fixedPsychic && (
+        <div className="toggle-row toggle-row--static toggle-row--stack">
+          <span className="toggle-row__text">
+            <span className="toggle-row__label">Forma de desempatar</span>
+            <span className="toggle-row__hint">
+              {TIEBREAK_MODES.find((t) => t.id === (options.tiebreakMode ?? 'sudden'))?.hint}
+            </span>
+          </span>
+          <span className="seg seg--wrap">
+            {TIEBREAK_MODES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`seg__opt ${(options.tiebreakMode ?? 'sudden') === t.id ? 'seg__opt--on' : ''}`}
+                onClick={() => onChange({ tiebreakMode: t.id })}
+              >
+                {t.label}
+              </button>
+            ))}
+          </span>
+          {(options.tiebreakMode ?? 'sudden') !== 'sudden' && (
+            <span className="toggle-row__hint">
+              Hace falta que alguien se quede fuera del empate (más de 2 jugadores). Si no, se juega
+              a muerte súbita.
+            </span>
+          )}
+        </div>
+      )}
       <ToggleRow
         label="Rotación aleatoria"
         hint="Cambia el orden de turnos aleatoriamente tras cada ronda completa."

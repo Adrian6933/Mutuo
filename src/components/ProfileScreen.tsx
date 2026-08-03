@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import Avatar from './Avatar';
+import PlayerCard from './PlayerCard';
 import {
   AVATAR_PRESETS,
   MAX_BIO,
@@ -16,6 +17,7 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [zoom, setZoom] = useState(false);
 
   const pickPhoto = async (file: File | undefined) => {
     if (!file) return;
@@ -33,6 +35,18 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <section className="panel panel--setup">
+      {zoom && (
+        <PlayerCard
+          player={{
+            name: profileName(profile),
+            avatar: profile.avatar,
+            bio: profile.bio,
+            colorIdx: 0,
+            tags: ['Así te ven los demás'],
+          }}
+          onClose={() => setZoom(false)}
+        />
+      )}
       <p className="panel__kicker">Tu perfil</p>
       <h2 className="panel__title">¿Quién eres?</h2>
 
@@ -54,6 +68,9 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
             disabled={busy}
           >
             {profile.avatar ? 'Cambiar foto' : 'Poner foto'}
+          </button>
+          <button type="button" className="btn btn--ghost btn--small" onClick={() => setZoom(true)}>
+            🔍 Ver en grande
           </button>
           {profile.avatar && (
             <button
@@ -134,7 +151,14 @@ export default function ProfileScreen({ onBack }: { onBack: () => void }) {
       <div className="profile-preview">
         <p className="panel__kicker">Así te verán</p>
         <div className="profile-preview__row">
-          <Avatar name={profileName(profile)} avatar={profile.avatar} size={46} colorIdx={0} />
+          <button
+            type="button"
+            className="avatar-btn"
+            onClick={() => setZoom(true)}
+            aria-label="Ver tu perfil en grande"
+          >
+            <Avatar name={profileName(profile)} avatar={profile.avatar} size={46} colorIdx={0} />
+          </button>
           <span className="profile-preview__name">{profileName(profile)}</span>
           {profile.bio && <span className="profile-preview__bio">«{profile.bio}»</span>}
         </div>

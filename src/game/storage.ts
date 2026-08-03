@@ -1,3 +1,4 @@
+import { DEFAULT_OPTIONS } from './reducer';
 import type { GameState, Mode, ModePrefs } from './types';
 
 const STATE_KEY = 'frecuencia-state-v1';
@@ -18,7 +19,8 @@ export function loadState(): GameState | null {
     const s = JSON.parse(raw) as GameState;
     if (!s || typeof s !== 'object' || !s.phase || s.phase === 'menu' || s.phase === 'end') return null;
     if (!s.options || !s.categories) return null; // esquema antiguo
-    return s;
+    // rellena ajustes añadidos después de guardar (clueSecs, tiebreakMode…)
+    return { ...s, options: { ...DEFAULT_OPTIONS, ...s.options } };
   } catch {
     return null;
   }

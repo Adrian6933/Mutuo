@@ -4,10 +4,22 @@ import ScoreTable from './ScoreTable';
 import Confetti from './Confetti';
 import RivalBet from './RivalBet';
 import { CardPicker, CustomCardForm, ClueForm } from './CardPicker';
-import { REVEAL_TEXT, buildRows, winnerText, initialsOf, Stats } from './gameShared';
+import {
+  REVEAL_TEXT,
+  buildRows,
+  winnerText,
+  initialsOf,
+  tiebreakLabel,
+  tiebreakRevealText,
+  Stats,
+} from './gameShared';
 import {
   psychicName,
   guesserNames,
+  simultaneousGuess,
+  teamOf,
+  activeTeamIdx,
+  ACTIVE_TEAM_MULT,
   activeTeam,
   rivalTeam,
   ffaBystanderNames,
@@ -26,6 +38,7 @@ import { roleFor, type Live, type LobbyPlayer } from '../game/online';
 import { setSoundEnabled, sfx } from '../game/sound';
 import type { GameState } from '../game/types';
 import Avatar from './Avatar';
+import PlayerCard, { type PlayerCardData } from './PlayerCard';
 
 type Props = {
   game: GameState;
@@ -38,6 +51,13 @@ type Props = {
   setLiveNeedle: (angle: number) => void;
   setSkipVote: (voted: boolean) => void;
   backToLobby: () => void;
+  /** revancha: rehace la partida con la gente que hay ahora en la lobby */
+  playAgain: () => void;
+  /** anfitrión: echar a alguien con la partida en marcha */
+  onKick: (uid: string) => void;
+  /** anfitrión: repetir la ronda actual */
+  onRestartRound: () => void;
+  hostUid: string;
   onLeave: () => void;
 };
 
@@ -99,6 +119,117 @@ function SkipVoteBar({
   );
 }
 
+/** Panel del anfitrión durante la partida: echar a alguien y repetir la ronda si se atasca. */
+function HostPanel({
+  players,
+  assign,
+  uid,
+  hostUid,
+  onKick,
+  onRestart,
+}: {
+  players: Record<string, LobbyPlayer>;
+  assign: Record<string, number> | null;
+  uid: string;
+  hostUid: string;
+  onKick: (uid: string) => void;
+  onRestart: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const entries = Object.entries(players).sort((a, b) => a[1].joinedAt - b[1].joinedAt);
+
+  return (
+    <div className="host-panel">
+      <button
+        type="button"
+        className={`chip chip--mini ${open ? 'chip--on' : ''}`}
+        onClick={() => {
+          setOpen((v) => !v);
+          setConfirm(null);
+        }}
+        aria-expanded={open}
+      >
+        👑 Jugadores ({entries.filter(([, p]) => p.online).length})
+      </button>
+      {open && (
+        <div className="host-panel__body">
+          {entries.map(([pUid, p]) => {
+            const inGame = assign?.[pUid] !== undefined;
+            return (
+              <div key={pUid} className={`lobby-player ${p.online ? '' : 'lobby-player--off'}`}>
+                <span className={`presence ${p.online ? 'presence--on' : ''}`} aria-hidden="true" />
+                <Avatar name={p.name} avatar={p.avatar} size={26} colorIdx={0} />
+                <span className="lobby-player__name">{p.name}</span>
+                <span className="lobby-player__tags">
+                  {pUid === hostUid && '👑'}
+                  {pUid === uid && ' (tú)'}
+                  {!inGame && ' ⏳'}
+                </span>
+                {pUid !== uid &&
+                  (confirm === pUid ? (
+                    <span className="chip-row chip-row--tight">
+                      <button
+                        type="button"
+                        className="chip chip--mini chip--danger"
+                        onClick={() => {
+                          onKick(pUid);
+                          setConfirm(null);
+                        }}
+                      >
+                        Echar
+                      </button>
+                      <button
+                        type="button"
+                        className="chip chip--mini"
+                        onClick={() => setConfirm(null)}
+                      >
+                        No
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      className="lobby-player__kick"
+                      onClick={() => setConfirm(pUid)}
+                      title={`Expulsar a ${p.name}`}
+                      aria-label={`Expulsar a ${p.name}`}
+                    >
+                      ✕
+                    </button>
+                  ))}
+              </div>
+            );
+          })}
+          <p className="end-config__hint">
+            Al echar a alguien a mitad de ronda, la ronda se repite con los que quedáis. Si vuelve a
+            entrar, se le mete en la siguiente ronda.
+          </p>
+          {confirm === 'restart' ? (
+            <div className="btn-row">
+              <button
+                className="btn btn--primary btn--small"
+                onClick={() => {
+                  onRestart();
+                  setConfirm(null);
+                }}
+              >
+                Sí, repetir
+              </button>
+              <button className="btn btn--ghost btn--small" onClick={() => setConfirm(null)}>
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button className="btn btn--ghost btn--small" onClick={() => setConfirm('restart')}>
+              🔄 Repetir esta ronda
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Waiting({ kicker, text, timeLeft }: { kicker: string; text: string; timeLeft?: number | null }) {
   return (
     <section className="panel">
@@ -129,6 +260,10 @@ export default function OnlineGame({
   setLiveNeedle,
   setSkipVote,
   backToLobby,
+  playAgain,
+  onKick,
+  onRestartRound,
+  hostUid,
   onLeave,
 }: Props) {
   const role = roleFor(s, assign, uid);
@@ -137,13 +272,21 @@ export default function OnlineGame({
   const skipVotes = live.skipVotes ?? {};
   const votedToSkipCount = onlinePlayers.filter(([pUid]) => skipVotes[pUid] === true).length;
   const hasVotedToSkip = Boolean(skipVotes[uid]);
-  const allGuessMode = s.mode === 'ffa' && s.options.allGuess;
+  const allGuessMode = simultaneousGuess(s);
+  const teamsAll = s.mode === 'teams' && s.options.teamsAllGuess;
+  const myTeam = role.playerId !== null ? teamOf(s, role.playerId) : undefined;
+  const activeIdx = s.teams.length > 0 ? activeTeamIdx(s) : -1;
   const hasVoted = s.mode === 'ffa' && s.bets && role.playerId !== null && s.bets[role.playerId.toString()] !== undefined;
-  const myGuessDone =
-    allGuessMode && role.playerId !== null && s.guesses ? s.guesses[role.playerId.toString()] !== undefined : false;
+  const myGuessDone = !allGuessMode
+    ? false
+    : teamsAll
+      ? Boolean(myTeam && s.guesses?.[`t${myTeam.id}`] !== undefined)
+      : Boolean(role.playerId !== null && s.guesses?.[role.playerId.toString()] !== undefined);
   const guessesInCount = allGuessMode ? Object.keys(s.guesses ?? {}).length : 0;
-  const guessesTotalCount = allGuessMode ? allGuessers(s).length : 0;
+  const guessesTotalCount = !allGuessMode ? 0 : teamsAll ? s.teams.length : allGuessers(s).length;
   const isFfaBystander = s.mode === 'ffa' && !allGuessMode && role.playerId !== null && ffaBystanders(s).some((p) => p.id === role.playerId);
+  // has entrado con la partida en marcha: aún no estás en la lista de jugadores
+  const isLateWatcher = !role.isMember && s.phase !== 'end';
   const bystanderVote = isFfaBystander ? s.bets?.[role.playerId!.toString()] : null;
   const bystanderWon = isFfaBystander && bystanderVote
     ? (bystanderVote === 'miss'
@@ -158,6 +301,7 @@ export default function OnlineGame({
   const showTeamGain = s.mode === 'teams' && role.isRival && s.bet !== null;
   const [localNeedle, setLocalNeedle] = useState(90);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [card, setCard] = useState<PlayerCardData | null>(null);
   const lastSent = useRef(0);
   const lastTick = useRef(90);
   const pendingWrite = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -253,8 +397,23 @@ export default function OnlineGame({
   }
 
   const allMarkers: DialMarker[] | null =
-    allGuessMode && s.phase === 'reveal'
-      ? allGuessers(s).map((p) => {
+    !(allGuessMode && s.phase === 'reveal')
+      ? null
+      : teamsAll
+        ? // un marcador por equipo, con el x3 ya aplicado al del psíquico
+          s.teams.map((t, i) => {
+            const angle = s.guesses?.[`t${t.id}`] ?? 90;
+            const band = scoreFor(angle, s.target);
+            return {
+              angle,
+              initials: initialsOf(t.name),
+              name: t.name,
+              colorIdx: colorIdx(s, `t${t.id}`),
+              pts: i === activeIdx ? band * ACTIVE_TEAM_MULT : band,
+              playerId: t.id,
+            };
+          })
+        : allGuessers(s).map((p) => {
           const angle = s.guesses?.[p.id.toString()] ?? 90;
           const prof = profileById.get(p.id);
           return {
@@ -267,17 +426,18 @@ export default function OnlineGame({
             bio: prof?.bio ?? null,
             playerId: p.id,
           };
-        })
-      : null;
+        });
 
   // con mucha gente (directos) el dial y la lista se saturan: se enseñan los mejores,
   // y el tuyo siempre aunque no entre en el corte
   const MAX_MARKERS = 16;
   const MAX_RESULTS = 30;
   const ranked = allMarkers ? [...allMarkers].sort((a, b) => b.pts - a.pts) : null;
+  // "el mío" es mi marcador, o el de mi equipo cuando adivinan los equipos
+  const mineId = teamsAll ? myTeam?.id ?? null : role.playerId;
   const mineIn = (list: DialMarker[]) =>
-    role.playerId !== null && allMarkers && !list.some((m) => m.playerId === role.playerId)
-      ? [...list, ...allMarkers.filter((m) => m.playerId === role.playerId)]
+    mineId !== null && allMarkers && !list.some((m) => m.playerId === mineId)
+      ? [...list, ...allMarkers.filter((m) => m.playerId === mineId)]
       : list;
   const revealMarkers = ranked ? mineIn(ranked.slice(0, MAX_MARKERS)) : null;
   const resultRows = ranked ? mineIn(ranked.slice(0, MAX_RESULTS)) : null;
@@ -290,11 +450,31 @@ export default function OnlineGame({
 
   return (
     <>
+      {card && <PlayerCard player={card} onClose={() => setCard(null)} />}
+
+      {isLateWatcher && (
+        <p className="lobby-notice late-join-notice">
+          ⏳ Ya estás dentro. Entras a jugar en la siguiente ronda: de mientras, puedes ver la
+          partida.
+        </p>
+      )}
+
+      {isHost && (
+        <HostPanel
+          players={players}
+          assign={assign}
+          uid={uid}
+          hostUid={hostUid}
+          onKick={onKick}
+          onRestart={onRestartRound}
+        />
+      )}
+
       {inRound && (
         <div className="online-status">
           <span className="round-pill">
             {s.tiebreakKeys
-              ? '⚡ Muerte súbita'
+              ? tiebreakLabel(s)
               : `Ronda ${s.round + 1}${total ? `/${total}` : ''}${
                   s.endRule.kind === 'points' ? ` · meta ${s.endRule.goal}` : ''
                 }`}
@@ -456,7 +636,12 @@ export default function OnlineGame({
             {REVEAL_TEXT[s.lastPts]}
           </p>
           <p className="panel__text">
-            {s.options.coop ? (
+            {teamsAll ? (
+              <>
+                {activeTeam(s).name} juega con <b>x{ACTIVE_TEAM_MULT}</b> por ser el equipo de{' '}
+                {psy}.
+              </>
+            ) : s.options.coop ? (
               coopGain > 0 ? (
                 <>
                   Habéis sumado <b>+{coopGain}</b> al marcador común.
@@ -474,7 +659,7 @@ export default function OnlineGame({
                 `Nadie ha caído en la zona de ${psy}.`
               )
             ) : s.tiebreakKeys ? (
-              'En muerte súbita solo puntúan los adivinadores.'
+              tiebreakRevealText(s, psy, psyGain)
             ) : psyGain > 0 ? (
               <>
                 {psy} se lleva <b>+{psyGain}</b> por {psyGain === 1 ? 'un acertante' : `${psyGain} acertantes`}.
@@ -488,14 +673,29 @@ export default function OnlineGame({
               <li
                 key={m.playerId ?? m.name}
                 className={`all-results__item c${m.colorIdx} ${
-                  m.playerId === role.playerId ? 'all-results__item--me' : ''
+                  m.playerId === mineId ? 'all-results__item--me' : ''
                 }`}
               >
-                {m.avatar ? (
-                  <Avatar name={m.name} avatar={m.avatar} size={28} colorIdx={m.colorIdx} />
-                ) : (
-                  <span className="all-results__badge">{m.initials}</span>
-                )}
+                <button
+                  type="button"
+                  className="avatar-btn"
+                  onClick={() =>
+                    setCard({
+                      name: m.name,
+                      avatar: m.avatar,
+                      bio: m.bio,
+                      colorIdx: m.colorIdx,
+                      tags: [m.pts > 0 ? `+${m.pts} esta ronda` : 'Sin puntos esta ronda'],
+                    })
+                  }
+                  aria-label={`Ver el perfil de ${m.name}`}
+                >
+                  {m.avatar ? (
+                    <Avatar name={m.name} avatar={m.avatar} size={28} colorIdx={m.colorIdx} />
+                  ) : (
+                    <span className="all-results__badge">{m.initials}</span>
+                  )}
+                </button>
                 <span className="all-results__name">{m.name}</span>
                 <span className={`all-results__pts ${m.pts === 0 ? 'all-results__pts--miss' : ''}`}>
                   {m.pts > 0 ? `+${m.pts}` : '0'}
@@ -602,7 +802,7 @@ export default function OnlineGame({
 
       {s.phase === 'standings' && (
         <section className="panel panel--setup">
-          <p className="panel__kicker">{s.tiebreakKeys ? '⚡ Muerte súbita' : `Ronda ${s.round + 1}`}</p>
+          <p className="panel__kicker">{s.tiebreakKeys ? tiebreakLabel(s) : `Ronda ${s.round + 1}`}</p>
           <h2 className="panel__title">Clasificación</h2>
           <ScoreTable rows={rows} />
           <SkipVoteBar
@@ -640,7 +840,8 @@ export default function OnlineGame({
           {s.options.stats && <Stats s={s} />}
           {isHost ? (
             <div className="btn-row">
-              <button className="btn btn--primary" onClick={() => sendAction({ type: 'PLAY_AGAIN' })}>
+              {/* rehace la partida con la gente que hay ahora: así entran los que llegaron tarde */}
+              <button className="btn btn--primary" onClick={playAgain}>
                 Jugar otra vez
               </button>
               <button className="btn btn--ghost" onClick={backToLobby}>

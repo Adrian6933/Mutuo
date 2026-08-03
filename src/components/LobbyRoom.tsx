@@ -5,6 +5,7 @@ import type { Mode } from '../game/types';
 import { CategoryPicker, EndConfig, ExtrasConfig } from './SetupShared';
 import { COLOR_COUNT } from '../game/reducer';
 import Avatar from './Avatar';
+import PlayerCard, { type PlayerCardData } from './PlayerCard';
 
 const LOBBY_MODES: { label: string; mode: Mode; presenter: boolean; coop: boolean }[] = [
   { label: 'Todos contra todos', mode: 'ffa', presenter: false, coop: false },
@@ -28,7 +29,7 @@ type Props = {
   onShuffleFfa: () => void;
   onDistributeTeamsOfTwo: () => void;
   onShuffleTeamInternal: () => void;
-  onStart: () => void;
+  onStart: () => boolean;
   onLeave: () => void;
 };
 
@@ -51,6 +52,7 @@ export default function LobbyRoom({
   onLeave,
 }: Props) {
   const [copied, setCopied] = useState(false);
+  const [card, setCard] = useState<PlayerCardData | null>(null);
 
   const entries = Object.entries(players).sort(
     (a, b) => (a[1].order ?? a[1].joinedAt) - (b[1].order ?? b[1].joinedAt)
@@ -82,7 +84,27 @@ export default function LobbyRoom({
   const renderPlayerRow = (pUid: string, p: LobbyPlayer) => (
     <div key={pUid} className={`lobby-player ${p.online ? '' : 'lobby-player--off'}`}>
       <span className={`presence ${p.online ? 'presence--on' : ''}`} aria-hidden="true" />
-      <Avatar name={p.name} avatar={p.avatar} size={30} colorIdx={(p.team ?? 0) % COLOR_COUNT} />
+      <button
+        type="button"
+        className="avatar-btn"
+        onClick={() =>
+          setCard({
+            name: p.name,
+            avatar: p.avatar,
+            bio: p.bio,
+            colorIdx: (p.team ?? 0) % COLOR_COUNT,
+            tags: [
+              ...(pUid === meta.hostUid ? ['👑 Anfitrión'] : []),
+              ...(pUid === uid ? ['Eres tú'] : []),
+              ...(config.mode === 'teams' ? [`Equipo ${(p.team ?? 0) + 1}`] : []),
+              ...(p.online ? [] : ['Desconectado']),
+            ],
+          })
+        }
+        aria-label={`Ver el perfil de ${p.name}`}
+      >
+        <Avatar name={p.name} avatar={p.avatar} size={30} colorIdx={(p.team ?? 0) % COLOR_COUNT} />
+      </button>
       {pUid === uid ? (
         <input
           className="input input--nick input--inline"
@@ -143,6 +165,7 @@ export default function LobbyRoom({
 
   return (
     <section className="panel panel--setup">
+      {card && <PlayerCard player={card} onClose={() => setCard(null)} />}
       <p className="panel__kicker">{meta.public ? 'Lobby pública' : 'Lobby privada'}</p>
       <h2 className="panel__title">{meta.name}</h2>
 

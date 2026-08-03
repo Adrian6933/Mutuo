@@ -13,6 +13,9 @@ import Confetti from './Confetti';
 import {
   reducer,
   initialState,
+  simultaneousGuess,
+  currentGuessTeam,
+  ACTIVE_TEAM_MULT,
   psychicName,
   guesserNames,
   activeTeam,
@@ -35,7 +38,15 @@ import { loadPrefs, savePrefs, prefsFromState, loadState, saveState, clearState 
 import { setSoundEnabled, sfx } from '../game/sound';
 import type { GameState } from '../game/types';
 
-import { REVEAL_TEXT, buildRows, winnerText, initialsOf, Stats } from './gameShared';
+import {
+  REVEAL_TEXT,
+  buildRows,
+  winnerText,
+  initialsOf,
+  tiebreakLabel,
+  tiebreakRevealText,
+  Stats,
+} from './gameShared';
 
 export default function Game() {
   const [s, dispatch] = useReducer(reducer, initialState);
@@ -94,6 +105,24 @@ export default function Game() {
   useEffect(() => {
     if (timeLeft === 0 && s.phase === 'guess') dispatch({ type: 'CONFIRM_GUESS' });
   }, [timeLeft, s.phase]);
+
+  // temporizador para dar la pista: a cero se pasa a adivinar con lo que haya escrito
+  const [clueLeft, setClueLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    const secs = s.options.clueSecs ?? 0;
+    if (s.phase !== 'clue' || secs <= 0) {
+      setClueLeft(null);
+      return;
+    }
+    setClueLeft(secs);
+    const id = setInterval(() => setClueLeft((t) => (t === null ? null : t - 1)), 1000);
+    return () => clearInterval(id);
+  }, [s.phase, s.round, s.options.clueSecs]);
+
+  useEffect(() => {
+    if (clueLeft === 0 && s.phase === 'clue') dispatch({ type: 'CLUE_GIVEN', text: '' });
+  }, [clueLeft, s.phase]);
 
   const [revealLeft, setRevealLeft] = useState<number | null>(null);
 
@@ -173,20 +202,34 @@ export default function Game() {
   const total = s.tiebreakKeys ? null : inRound || s.phase === 'standings' ? totalRounds(s) : null;
 
   // reveal de "todos adivinan": marcador por adivinador sobre el dial
-  const revealAll = s.phase === 'reveal' && s.mode === 'ffa' && s.options.allGuess;
-  const markers: DialMarker[] | null = revealAll
-    ? allGuessers(s).map((p) => {
-        const angle = s.guesses?.[p.id.toString()] ?? 90;
-        return {
-          angle,
-          initials: initialsOf(p.name),
-          name: p.name,
-          colorIdx: colorIdx(s, `p${p.id}`),
-          pts: scoreFor(angle, s.target),
-        };
-      })
-    : null;
-  const psyGain = revealAll
+  const revealAll = s.phase === 'reveal' && simultaneousGuess(s);
+  const activeIdx = s.mode === 'teams' && s.teams.length > 0 ? activeTeamIdx(s) : -1;
+  const markers: DialMarker[] | null = !revealAll
+    ? null
+    : s.mode === 'teams'
+      ? // un marcador por equipo; el del psíquico puntúa x3
+        s.teams.map((t, i) => {
+          const angle = s.guesses?.[`t${t.id}`] ?? 90;
+          const band = scoreFor(angle, s.target);
+          return {
+            angle,
+            initials: initialsOf(t.name),
+            name: t.name,
+            colorIdx: colorIdx(s, `t${t.id}`),
+            pts: i === activeIdx ? band * ACTIVE_TEAM_MULT : band,
+          };
+        })
+      : allGuessers(s).map((p) => {
+          const angle = s.guesses?.[p.id.toString()] ?? 90;
+          return {
+            angle,
+            initials: initialsOf(p.name),
+            name: p.name,
+            colorIdx: colorIdx(s, `p${p.id}`),
+            pts: scoreFor(angle, s.target),
+          };
+        });
+  const psyGain = revealAll && s.mode === 'ffa'
     ? s.lastGains.find((g) => g.key === `p${ffaPsychic(s).id}`)?.pts ?? 0
     : 0;
 
@@ -200,7 +243,7 @@ export default function Game() {
           <div className="scoreboard">
             <span className="round-pill">
               {s.tiebreakKeys
-                ? '⚡ Muerte súbita'
+                ? tiebreakLabel(s)
                 : `Ronda ${s.round + 1}${total ? `/${total}` : ''}${
                     s.endRule.kind === 'points' ? ` · meta ${s.endRule.goal}` : ''
                   }`}
@@ -316,7 +359,7 @@ export default function Game() {
         {s.phase === 'handoff' && (
           <section className="panel">
             <p className="panel__kicker">
-              {s.tiebreakKeys ? '⚡ Muerte súbita' : `Ronda ${s.round + 1}`}
+              {s.tiebreakKeys ? tiebreakLabel(s) : `Ronda ${s.round + 1}`}
               {s.mode === 'teams' ? ` · ${activeTeam(s).name}` : ''}
             </p>
             <h2 className="panel__title">{psychicName(s)}, te toca de psíquico</h2>
@@ -360,15 +403,21 @@ export default function Game() {
             kicker={`Psíquico: ${psychicName(s)}`}
             guesser={guesserNames(s)}
             onSubmit={(text) => dispatch({ type: 'CLUE_GIVEN', text })}
+            timeLeft={clueLeft}
           />
         )}
 
         {s.phase === 'guess-handoff' && (
           <section className="panel">
             <p className="panel__kicker">
-              Adivina {s.guesserIdx + 1} de {allGuessers(s).length}
+              Adivina {s.guesserIdx + 1} de{' '}
+              {s.mode === 'teams' ? s.teams.length : allGuessers(s).length}
             </p>
-            <h2 className="panel__title">{currentGuesser(s).name}, te toca adivinar</h2>
+            <h2 className="panel__title">
+              {s.mode === 'teams'
+                ? `${currentGuessTeam(s).name}, os toca adivinar`
+                : `${currentGuesser(s).name}, te toca adivinar`}
+            </h2>
             {s.clue && (
               <p className="panel__text">
                 Pista: <b>«{s.clue}»</b>
@@ -376,7 +425,9 @@ export default function Game() {
             )}
             <p className="panel__text">Pasadle el móvil sin comentar la jugada.</p>
             <button className="btn btn--primary" onClick={() => dispatch({ type: 'BEGIN_GUESS' })}>
-              Soy {currentGuesser(s).name}
+              {s.mode === 'teams'
+                ? `Somos ${currentGuessTeam(s).name}`
+                : `Soy ${currentGuesser(s).name}`}
             </button>
           </section>
         )}
@@ -384,9 +435,15 @@ export default function Game() {
         {s.phase === 'guess' && (
           <section className="panel">
             <p className="panel__kicker">
-              {s.mode === 'ffa' && s.options.allGuess
-                ? `${currentGuesser(s).name} · ${s.guesserIdx + 1}/${allGuessers(s).length}`
-                : guesserNames(s)}
+              {s.mode === 'teams' && s.options.teamsAllGuess
+                ? `${currentGuessTeam(s).name} · ${s.guesserIdx + 1}/${s.teams.length}${
+                    activeIdx === s.teams.findIndex((t) => t.id === currentGuessTeam(s).id)
+                      ? ' · x3'
+                      : ''
+                  }`
+                : s.mode === 'ffa' && simultaneousGuess(s)
+                  ? `${currentGuesser(s).name} · ${s.guesserIdx + 1}/${allGuessers(s).length}`
+                  : guesserNames(s)}
             </p>
             {timeLeft !== null && (
               <div className={`panel__timer-large ${timeLeft <= 10 ? 'panel__timer-large--low' : ''}`}>
@@ -399,7 +456,7 @@ export default function Game() {
               </p>
             ) : (
               <p className="panel__text">
-                {s.mode === 'ffa' && s.options.allGuess
+                {s.mode === 'ffa' && simultaneousGuess(s)
                   ? 'Arrastra la aguja hasta donde creas que apunta la pista.'
                   : 'Arrastrad la aguja hasta donde creáis que apunta la pista.'}
               </p>
@@ -423,7 +480,12 @@ export default function Game() {
               {REVEAL_TEXT[s.lastPts]}
             </p>
             <p className="panel__text">
-              {s.options.coop ? (
+              {s.mode === 'teams' ? (
+                <>
+                  {activeTeam(s).name} juega con <b>x{ACTIVE_TEAM_MULT}</b> por ser el equipo de{' '}
+                  {psychicName(s)}.
+                </>
+              ) : s.options.coop ? (
                 (() => {
                   const won = s.lastGains.find((g) => g.key === 'coop')?.pts ?? 0;
                   return won > 0
@@ -438,7 +500,7 @@ export default function Game() {
                     : `Nadie ha caído en la zona de ${psychicName(s)}.`;
                 })()
               ) : s.tiebreakKeys ? (
-                'En muerte súbita solo puntúan los adivinadores.'
+                tiebreakRevealText(s, psychicName(s), psyGain)
               ) : psyGain > 0 ? (
                 <>
                   {psychicName(s)} se lleva <b>+{psyGain}</b> por{' '}
@@ -536,7 +598,7 @@ export default function Game() {
         {s.phase === 'standings' && (
           <section className="panel panel--setup">
             <p className="panel__kicker">
-              {s.tiebreakKeys ? '⚡ Muerte súbita' : `Ronda ${s.round + 1}`}
+              {s.tiebreakKeys ? tiebreakLabel(s) : `Ronda ${s.round + 1}`}
             </p>
             <h2 className="panel__title">Clasificación</h2>
             <ScoreTable rows={rows} />

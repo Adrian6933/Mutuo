@@ -43,6 +43,27 @@ export function buildRows(s: GameState): Row[] {
 
 export { initialsOf } from '../game/profile';
 
+/** Etiqueta del desempate en curso, según la forma que se esté jugando. */
+export function tiebreakLabel(s: GameState): string {
+  if (!s.tiebreakKeys) return '';
+  if (s.activeTiebreak === 'clues') return '⚡ Desempate · pistas';
+  if (s.activeTiebreak === 'duel') return '⚡ Desempate · duelo';
+  return '⚡ Muerte súbita';
+}
+
+/** Explicación de quién puntúa en la ronda de desempate que toque. */
+export function tiebreakRevealText(s: GameState, psyName: string, psyGain: number): string {
+  if (s.activeTiebreak === 'clues') {
+    return psyGain > 0
+      ? `${psyName} se lleva +${psyGain}: todo lo que han sumado los eliminados con su pista.`
+      : `Con la pista de ${psyName} nadie ha puntuado: se queda a cero.`;
+  }
+  if (s.activeTiebreak === 'duel') {
+    return `Solo puntúan los empatados. La pista la ha dado ${psyName}, que ya estaba eliminado.`;
+  }
+  return 'En muerte súbita solo puntúan los adivinadores.';
+}
+
 export function winnerText(rows: Row[], coop = false): string {
   if (coop) {
     const pts = rows[0]?.score ?? 0;

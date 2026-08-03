@@ -28,7 +28,8 @@ export function diffNotices(
     // al anfitrión que se va lo anuncia el mensaje de cambio de mando
     if (hostChanged && u === prevHostUid) continue;
     if (wasOnline(u) && !isOnline(u)) texts.push(`${nameOf(u)} se ha ido.`);
-    else if (!prev[u] && isOnline(u)) texts.push(`${nameOf(u)} se ha unido.`);
+    // vale tanto para los nuevos como para quien vuelve tras irse (ahora se puede entrar a mitad)
+    else if (!wasOnline(u) && isOnline(u)) texts.push(`${nameOf(u)} se ha unido.`);
   }
 
   if (hostChanged) {
@@ -49,6 +50,17 @@ export function useLobbyNotices(
   const prevPlayers = useRef<Record<string, LobbyPlayer> | null>(null);
   const prevHost = useRef<string | null>(null);
   const seq = useRef(0);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // los avisos se limpian solos; los timers solo se cancelan al desmontar (si se cancelaban
+  // en cada cambio de la lobby, los avisos se quedaban pegados en pantalla)
+  useEffect(
+    () => () => {
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+    },
+    []
+  );
 
   useEffect(() => {
     const prev = prevPlayers.current;
@@ -64,8 +76,9 @@ export function useLobbyNotices(
     const t = setTimeout(() => {
       const ids = new Set(fresh.map((n) => n.id));
       setNotices((cur) => cur.filter((n) => !ids.has(n.id)));
+      timers.current = timers.current.filter((x) => x !== t);
     }, LIFETIME);
-    return () => clearTimeout(t);
+    timers.current.push(t);
   }, [players, meta?.hostUid, uid]);
 
   return notices;

@@ -29,6 +29,10 @@ import {
   rivalTeam,
   teamPsychic,
   teamGuessers,
+  teamOf,
+  guessingTeams,
+  simultaneousGuess,
+  totalRounds,
   type Action,
 } from './reducer';
 import { shuffle, type CategoryId } from '../data/cards';
@@ -86,6 +90,16 @@ export type PublicLobby = {
   maxPlayers: number | null;
   /** primeras caras conectadas, para enseñarlas en la lista */
   faces: LobbyFace[];
+  /** 'playing' = ya han empezado; se puede entrar igual y se juega desde la ronda siguiente */
+  status: LobbyStatus;
+  /** ronda en curso (1-based) si está jugando */
+  round: number | null;
+  /** rondas totales, o null si la partida va a puntos o está en desempate */
+  total: number | null;
+  /** puntos para ganar si el fin de partida va a puntos */
+  goal: number | null;
+  /** hay un desempate en marcha */
+  tiebreak: boolean;
 };
 
 /** caras que se enseñan por lobby en la lista; a partir de ahí, puntos suspensivos */
@@ -180,8 +194,9 @@ export function roleFor(
   if (playerId === null) return none;
   if (s.mode === 'ffa') {
     if (s.players.length === 0) return { ...none, playerId, isMember: true };
+    if (!s.players.some((p) => p.id === playerId)) return none; // entró tarde: aún no está en la partida
     const isPsychic = ffaPsychic(s).id === playerId;
-    if (s.options.allGuess) {
+    if (simultaneousGuess(s)) {
       const already = s.guesses ? s.guesses[playerId.toString()] !== undefined : false;
       const isGuesser = !isPsychic && !already && allGuessers(s).some((p) => p.id === playerId);
       // en "todos adivinan" no hay espectadores que apuesten
@@ -197,10 +212,24 @@ export function roleFor(
     };
   }
   if (s.teams.length === 0) return { ...none, playerId, isMember: true };
+  if (!s.teams.some((t) => t.players.some((p) => p.id === playerId))) return none;
   const at = activeTeam(s);
   const rv = rivalTeam(s);
   const inActive = at.players.some((p) => p.id === playerId);
   const psychicId = teamPsychic(at).id;
+  if (s.options.teamsAllGuess) {
+    // cada equipo coloca una aguja: vale cualquiera de sus miembros, y no hay apuesta
+    const mine = teamOf(s, playerId);
+    const done = mine ? s.guesses?.[`t${mine.id}`] !== undefined : true;
+    const isPsychic = inActive && psychicId === playerId;
+    return {
+      playerId,
+      isMember: true,
+      isPsychic,
+      isGuesser: !isPsychic && !done && mine !== undefined,
+      isRival: false,
+    };
+  }
   return {
     playerId,
     isMember: true,
@@ -243,6 +272,9 @@ function actionAllowed(
     case 'NEXT_ROUND':
       return senderUid === meta.hostUid;
     case 'PLAY_AGAIN':
+    case 'ADD_LATE':
+    case 'KICK_PLAYERS':
+    case 'RESTART_ROUND':
       return senderUid === meta.hostUid;
     default:
       return false;
@@ -270,6 +302,8 @@ export function useLobby() {
   const assignRef = useRef<Record<string, number> | null>(null);
   const configRef = useRef<NetConfig | null>(null);
   const playersRef = useRef<Record<string, LobbyPlayer>>({});
+  /** uids a los que el host ya ha metido en la partida empezada (evita duplicarlos) */
+  const lateAdded = useRef<Set<string>>(new Set());
 
   metaRef.current = meta;
   assignRef.current = assign;
@@ -300,7 +334,12 @@ export function useLobby() {
           setError('La lobby ya no existe.');
         }
       }),
-      onValue(ref(db, `${base}/players`), (s) => setPlayers((s.val() as Record<string, LobbyPlayer>) ?? {})),
+      onValue(ref(db, `${base}/players`), (s) => {
+        const v = (s.val() as Record<string, LobbyPlayer>) ?? {};
+        // quien ya no está en la sala deja de contar como "ya metido": si vuelve, se le mete otra vez
+        for (const u of [...lateAdded.current]) if (!v[u]) lateAdded.current.delete(u);
+        setPlayers(v);
+      }),
       onValue(ref(db, `${base}/config`), (s) => {
         const c = s.val() as NetConfig | null;
         if (c) {
@@ -385,6 +424,19 @@ export function useLobby() {
     return () => clearTimeout(t);
   }, [lobbyId, uid, meta, players]);
 
+  /* red de seguridad: si te toca ser host y aún no tienes estado (p. ej. te has quedado solo
+   * en una partida ya empezada), se reconstruye en cuanto llega el estado publicado.
+   * Solo cuando está vacío: así no se pisa el estado bueno con un eco viejo de la base. */
+  useEffect(() => {
+    if (!isHost) return;
+    if (!game || hostState.current) return;
+    hostState.current = {
+      ...game,
+      deck: shuffle(deckFor(game.categories ?? ALL_CATEGORIES)),
+      deckIndex: 0,
+    };
+  }, [isHost, game]);
+
   /* bucle de host: consumir la cola de acciones */
   useEffect(() => {
     if (!lobbyId || !uid || !isHost) return;
@@ -402,12 +454,14 @@ export function useLobby() {
       void set(ref(db, `${base}/game`), stripDeck(st));
     };
 
-    const applyAction = (action: Action, senderUid: string) => {
+    /** `force` = la acción la dispara un temporizador del host, no una persona: no se valida el rol
+     *  (si no, el cierre de la pista o de la apuesta no funcionaba cuando el anfitrión no jugaba ese papel). */
+    const applyAction = (action: Action, senderUid: string, force = false) => {
       const st = hostState.current;
       const m = metaRef.current;
       const asg = assignRef.current;
       if (!st || !m || !asg) return;
-      if (!actionAllowed(st, asg, m, action, senderUid)) return;
+      if (!force && !actionAllowed(st, asg, m, action, senderUid)) return;
       let next = st;
       if (action.type === 'CONFIRM_GUESS') {
         const finalAngle = action.angle !== undefined ? action.angle : liveRef.current.needle;
@@ -419,14 +473,15 @@ export function useLobby() {
       if (action.type === 'PLACE_BET') {
         const playerId = asg[senderUid];
         finalAction = { ...action, playerId };
-      } else if (action.type === 'CONFIRM_GUESS' && st.mode === 'ffa' && st.options.allGuess) {
+      } else if (action.type === 'CONFIRM_GUESS' && simultaneousGuess(st)) {
         // online: siempre se atribuye al remitente, nunca al playerId que mande el cliente
         finalAction = { ...action, playerId: asg[senderUid] };
       }
       next = reducer(next, finalAction);
       if (next === st) return;
       publish(next);
-      afterApply(next);
+      // meter gente nueva no cambia de fase: no hay que rearmar temporizadores ni borrar votos
+      if (action.type !== 'ADD_LATE') afterApply(next);
     };
 
     const afterApply = (st: GameState) => {
@@ -482,18 +537,20 @@ export function useLobby() {
         timerHandle.current = null;
       }
 
-      if (st.phase === 'clue') {
-        const end = Date.now() + 25000;
+      if (st.phase === 'clue' && (st.options.clueSecs ?? 0) > 0) {
+        const secs = st.options.clueSecs;
+        const end = Date.now() + secs * 1000;
         void set(ref(db, `${base}/live/timerEnd`), end);
         lastTimerPhase.current = st.phase;
         const round = st.round;
         timerHandle.current = setTimeout(() => {
           const cur = hostState.current;
           if (cur && cur.phase === 'clue' && cur.round === round) {
-            applyAction({ type: 'CLUE_GIVEN', text: '' }, uid);
+            // a cero se pasa solo a adivinar, aunque el psíquico no haya escrito nada
+            applyAction({ type: 'CLUE_GIVEN', text: '' }, uid, true);
           }
-        }, 25300);
-      } else if (st.phase === 'guess' && st.mode === 'ffa' && st.options.allGuess && st.options.timerSecs > 0) {
+        }, secs * 1000 + 300);
+      } else if (st.phase === 'guess' && simultaneousGuess(st) && st.options.timerSecs > 0) {
         const end = Date.now() + st.options.timerSecs * 1000;
         void set(ref(db, `${base}/live/timerEnd`), end);
         lastTimerPhase.current = st.phase;
@@ -501,7 +558,7 @@ export function useLobby() {
         timerHandle.current = setTimeout(() => {
           const cur = hostState.current;
           if (cur && cur.phase === 'guess' && cur.round === round) {
-            applyAction({ type: 'FINALIZE_GUESSES' }, uid);
+            applyAction({ type: 'FINALIZE_GUESSES' }, uid, true);
           }
         }, st.options.timerSecs * 1000 + 300);
       } else if (st.phase === 'guess' && st.options.timerSecs > 0) {
@@ -512,7 +569,7 @@ export function useLobby() {
         timerHandle.current = setTimeout(() => {
           const cur = hostState.current;
           if (cur && cur.phase === 'guess' && cur.round === round) {
-            applyAction({ type: 'CONFIRM_GUESS' }, uid);
+            applyAction({ type: 'CONFIRM_GUESS' }, uid, true);
           }
         }, st.options.timerSecs * 1000 + 300);
       } else if (st.phase === 'rival-bet') {
@@ -525,9 +582,9 @@ export function useLobby() {
           if (cur && cur.phase === 'rival-bet' && cur.round === round) {
             if (cur.mode === 'ffa') {
               // por applyAction para que afterApply arme el auto-avance del reveal
-              applyAction({ type: 'REVEAL_FFA' }, uid);
+              applyAction({ type: 'REVEAL_FFA' }, uid, true);
             } else {
-              applyAction({ type: 'PLACE_BET', side: null as any }, uid);
+              applyAction({ type: 'PLACE_BET', side: null as any }, uid, true);
             }
           }
         }, 10300);
@@ -539,7 +596,7 @@ export function useLobby() {
         timerHandle.current = setTimeout(() => {
           const cur = hostState.current;
           if (cur && cur.phase === 'reveal' && cur.round === round) {
-            applyAction({ type: 'SHOW_STANDINGS' }, uid);
+            applyAction({ type: 'SHOW_STANDINGS' }, uid, true);
           }
         }, st.options.revealSecs * 1000 + 300);
       } else if (st.phase === 'standings' && st.options.standingsSecs > 0) {
@@ -550,7 +607,7 @@ export function useLobby() {
         timerHandle.current = setTimeout(() => {
           const cur = hostState.current;
           if (cur && cur.phase === 'standings' && cur.round === round) {
-            applyAction({ type: 'NEXT_ROUND' }, uid);
+            applyAction({ type: 'NEXT_ROUND' }, uid, true);
           }
         }, st.options.standingsSecs * 1000 + 300);
       } else {
@@ -628,10 +685,8 @@ export function useLobby() {
         const roster = ((await get(ref(db, `lobbies/${clean}/players`))).val() ??
           {}) as Record<string, LobbyPlayer>;
         const already = Boolean(roster[me]);
-        if (m.status === 'playing' && !already) {
-          setError('Esa partida ya ha empezado.');
-          return;
-        }
+        // con la partida empezada también se puede entrar: el anfitrión mete a la gente nueva
+        // en la clasificación, y quien vuelve conserva sus puntos (sigue en `assign`)
         const connected = Object.values(roster).filter((p) => p.online).length;
         if (!already && m.maxPlayers && connected >= m.maxPlayers) {
           setError(`La lobby está llena (${connected}/${m.maxPlayers}).`);
@@ -661,6 +716,7 @@ export function useLobby() {
         setAssign(null);
         setError(null);
         hostState.current = null;
+        lateAdded.current = new Set();
         if (!me || !id) return;
         const db = getDb();
         const m = metaRef.current;
@@ -715,7 +771,25 @@ export function useLobby() {
       kickPlayer(targetUid: string) {
         const id = lobbyId;
         if (!id || metaRef.current?.hostUid !== uid || targetUid === uid) return;
-        void remove(ref(getDb(), `lobbies/${id}/players/${targetUid}`));
+        const db = getDb();
+        const pid = assignRef.current?.[targetUid];
+        // con la partida en marcha además hay que sacarlo del juego, no solo de la sala
+        if (pid !== undefined && metaRef.current?.status === 'playing') {
+          // marcarlo evita que el auto-alta lo vuelva a meter en el hueco entre los dos borrados
+          lateAdded.current.add(targetUid);
+          void remove(ref(db, `lobbies/${id}/assign/${targetUid}`));
+          void push(ref(db, `lobbies/${id}/actions`), {
+            uid,
+            action: { type: 'KICK_PLAYERS', ids: [pid] },
+          });
+        }
+        void remove(ref(db, `lobbies/${id}/players/${targetUid}`));
+      },
+
+      restartRound() {
+        const id = lobbyId;
+        if (!id || !uid || metaRef.current?.hostUid !== uid) return;
+        void push(ref(getDb(), `lobbies/${id}/actions`), { uid, action: { type: 'RESTART_ROUND' } });
       },
 
       shuffleFfaOrder() {
@@ -766,11 +840,12 @@ export function useLobby() {
         void update(ref(db), updates);
       },
 
-      startGame() {
+      /** Empieza (o rehace) la partida con la gente conectada. Devuelve false si no se puede. */
+      startGame(): boolean {
         const me = requireUid();
         const id = lobbyId;
         const conf = configRef.current;
-        if (!id || !conf || metaRef.current?.hostUid !== me) return;
+        if (!id || !conf || metaRef.current?.hostUid !== me) return false;
         const db = getDb();
         const entries = Object.entries(playersRef.current)
           .filter(([, p]) => p.online)
@@ -785,7 +860,7 @@ export function useLobby() {
           phase: 'setup',
         };
         if (conf.mode === 'ffa') {
-          if (entries.length < 2) return;
+          if (entries.length < 2) return false;
           base.players = entries.map(([pUid, p], i) => {
             assignMap[pUid] = i + 1;
             return { id: i + 1, name: p.name, score: 0 };
@@ -802,7 +877,7 @@ export function useLobby() {
             groups.set(t, [...(groups.get(t) ?? []), e]);
           }
           const teamIdxs = [...groups.keys()].sort((a, b) => a - b);
-          if (teamIdxs.length < 2 || teamIdxs.some((ti) => groups.get(ti)!.length < 2)) return;
+          if (teamIdxs.length < 2 || teamIdxs.some((ti) => groups.get(ti)!.length < 2)) return false;
           let nid = 1;
           base.teams = teamIdxs.map((ti, i) => {
             const teamId = nid++;
@@ -824,8 +899,9 @@ export function useLobby() {
           base.nextId = nid;
         }
         const st = reducer(base, { type: 'START_GAME' });
-        if (st.phase !== 'handoff') return;
+        if (st.phase !== 'handoff') return false;
         hostState.current = st;
+        lateAdded.current = new Set();
         void update(ref(db, `lobbies/${id}`), {
           assign: assignMap,
           game: stripDeck(st),
@@ -842,6 +918,7 @@ export function useLobby() {
             void set(ref(db, `lobbies/${id}/game`), stripDeck(next));
           }
         }, 400);
+        return true;
       },
 
       sendAction(action: Action) {
@@ -878,26 +955,50 @@ export function useLobby() {
             meta: LobbyMeta;
             players?: Record<string, LobbyPlayer>;
             config?: NetConfig;
+            game?: Partial<GameState> | null;
           };
-          if (v.meta?.status === 'lobby' && v.meta.createdAt > dayAgo) {
-            const connected = Object.values(v.players ?? {})
-              .filter((p) => p.online)
-              .sort((a, b) => a.joinedAt - b.joinedAt);
-            // lobby fantasma: se creó y se fueron todos, no tiene sentido enseñarla
-            if (connected.length === 0) return;
-            out.push({
-              id: child.key!,
-              name: v.meta.name,
-              players: connected.length,
-              mode: v.config?.mode ?? 'ffa',
-              maxPlayers: v.meta.maxPlayers ?? null,
-              faces: connected
-                .slice(0, MAX_FACES)
-                .map((p) => ({ name: p.name, avatar: p.avatar ?? null })),
-            });
+          if (!v.meta || v.meta.createdAt <= dayAgo) return;
+          const playing = v.meta.status === 'playing';
+          const connected = Object.values(v.players ?? {})
+            .filter((p) => p.online)
+            .sort((a, b) => a.joinedAt - b.joinedAt);
+          // lobby fantasma: se creó y se fueron todos, no tiene sentido enseñarla
+          if (connected.length === 0) return;
+          // las partidas en marcha se siguen enseñando para poder entrar a mitad,
+          // con la ronda por la que van; las acabadas no
+          let round: number | null = null;
+          let total: number | null = null;
+          let goal: number | null = null;
+          let tiebreak = false;
+          if (playing) {
+            const g = normalizeGame(v.game ?? null);
+            if (!g || g.phase === 'end') return;
+            round = g.round + 1;
+            tiebreak = Boolean(g.tiebreakKeys);
+            total = tiebreak ? null : totalRounds(g);
+            goal = g.endRule.kind === 'points' ? g.endRule.goal : null;
           }
+          out.push({
+            id: child.key!,
+            name: v.meta.name,
+            players: connected.length,
+            mode: v.config?.mode ?? 'ffa',
+            maxPlayers: v.meta.maxPlayers ?? null,
+            faces: connected
+              .slice(0, MAX_FACES)
+              .map((p) => ({ name: p.name, avatar: p.avatar ?? null })),
+            status: playing ? 'playing' : 'lobby',
+            round,
+            total,
+            goal,
+            tiebreak,
+          });
         });
-        return out.reverse().slice(0, 20);
+        // primero las que aún no han empezado: son las más fáciles de aprovechar
+        return out
+          .reverse()
+          .sort((a, b) => Number(a.status === 'playing') - Number(b.status === 'playing'))
+          .slice(0, 20);
       },
 
       backToLobby() {
@@ -905,6 +1006,7 @@ export function useLobby() {
         const id = lobbyId;
         if (!me || !id || metaRef.current?.hostUid !== me) return;
         hostState.current = null;
+        lateAdded.current = new Set();
         void update(ref(getDb(), `lobbies/${id}`), {
           'meta/status': 'lobby',
           game: null,
@@ -948,31 +1050,35 @@ export function useLobby() {
   /* host: cierra "todos adivinan" en cuanto todos los guessers online han confirmado
    * (los desconectados se rellenan con la aguja al centro, sin bloquear la ronda) */
   useEffect(() => {
-    if (
-      !lobbyId ||
-      !uid ||
-      !isHost ||
-      !game ||
-      game.phase !== 'guess' ||
-      game.mode !== 'ffa' ||
-      !game.options.allGuess
-    )
+    if (!lobbyId || !uid || !isHost || !game || game.phase !== 'guess' || !simultaneousGuess(game))
       return;
     const asg = assign;
     if (!asg) return;
 
-    const gs = allGuessers(game);
-    const onlineGuessers = Object.entries(players).filter(([pUid, p]) => {
-      if (!p.online) return false;
-      const pId = asg[pUid];
-      return pId !== undefined && pId !== null && gs.some((g) => g.id === pId);
-    });
-    const allSubmitted =
-      onlineGuessers.length > 0 &&
-      onlineGuessers.every(([pUid]) => {
+    let allSubmitted: boolean;
+    if (game.mode === 'teams') {
+      // por equipos: basta con que cada equipo que tenga a alguien conectado haya colocado aguja
+      const teamsWithPeople = guessingTeams(game).filter((t) =>
+        Object.entries(players).some(([pUid, p]) => {
+          const pId = asg[pUid];
+          return p.online && pId !== undefined && t.players.some((tp) => tp.id === pId);
+        })
+      );
+      // sin nadie conectado a quien esperar, se cierra la ronda igual (agujas al centro)
+      allSubmitted = teamsWithPeople.every((t) => game.guesses?.[`t${t.id}`] !== undefined);
+    } else {
+      const gs = allGuessers(game);
+      const onlineGuessers = Object.entries(players).filter(([pUid, p]) => {
+        if (!p.online) return false;
+        const pId = asg[pUid];
+        return pId !== undefined && pId !== null && gs.some((g) => g.id === pId);
+      });
+      // si no queda ningún adivinador conectado, no tiene sentido esperar: se resuelve la ronda
+      allSubmitted = onlineGuessers.every(([pUid]) => {
         const pId = asg[pUid];
         return game.guesses && game.guesses[pId!.toString()] !== undefined;
       });
+    }
 
     if (
       allSubmitted &&
@@ -982,6 +1088,40 @@ export function useLobby() {
     ) {
       void push(ref(getDb(), `lobbies/${lobbyId}/actions`), { uid, action: { type: 'FINALIZE_GUESSES' } });
     }
+  }, [players, lobbyId, uid, isHost, game, assign]);
+
+  /* host: mete en la partida a quien haya entrado con ella ya empezada.
+   * Se hace en la clasificación, así nadie aparece a mitad de ronda: entran en la siguiente. */
+  useEffect(() => {
+    if (!lobbyId || !uid || !isHost || !game || game.phase !== 'standings') return;
+    const asg = assign ?? {};
+    const pending = Object.entries(players).filter(
+      ([pUid, p]) => p.online && asg[pUid] === undefined && !lateAdded.current.has(pUid)
+    );
+    if (pending.length === 0) return;
+
+    let nid = game.nextId;
+    const entries: { id: number; name: string; teamId?: number }[] = [];
+    const assignPatch: Record<string, number> = {};
+    // en equipos van al que menos gente tenga, para no desequilibrar
+    const sizes = new Map(game.teams.map((t) => [t.id, t.players.length]));
+    for (const [pUid, p] of pending) {
+      const id = nid++;
+      if (game.mode === 'teams') {
+        const smallest = [...sizes.entries()].sort((a, b) => a[1] - b[1])[0];
+        if (!smallest) break;
+        sizes.set(smallest[0], smallest[1] + 1);
+        entries.push({ id, name: p.name, teamId: smallest[0] });
+      } else {
+        entries.push({ id, name: p.name });
+      }
+      assignPatch[pUid] = id;
+      lateAdded.current.add(pUid);
+    }
+    if (entries.length === 0) return;
+    const db = getDb();
+    void push(ref(db, `lobbies/${lobbyId}/actions`), { uid, action: { type: 'ADD_LATE', entries } });
+    void update(ref(db, `lobbies/${lobbyId}/assign`), assignPatch);
   }, [players, lobbyId, uid, isHost, game, assign]);
 
   /* host: auto-avanzar si los votos de saltar alcanzan el % fijado */

@@ -11,6 +11,7 @@ import type {
   Player,
   Team,
   TeamPlayer,
+  TiebreakMode,
 } from './types';
 
 export type Action =
@@ -51,6 +52,12 @@ export type Action =
   | { type: 'SHOW_STANDINGS' }
   | { type: 'NEXT_ROUND' }
   | { type: 'PLAY_AGAIN' }
+  /** online: gente que ha entrado con la partida empezada, se suma entre rondas */
+  | { type: 'ADD_LATE'; entries: { id: number; name: string; teamId?: number }[] }
+  /** online: el anfitrión echa a alguien con la partida en marcha */
+  | { type: 'KICK_PLAYERS'; ids: number[] }
+  /** online: el anfitrión repite la ronda (p. ej. el psíquico se ha ido y todo está parado) */
+  | { type: 'RESTART_ROUND' }
   | { type: 'RESTORE'; state: GameState };
 
 export const COLOR_COUNT = 6;
@@ -61,13 +68,16 @@ export const DEFAULT_OPTIONS: Options = {
   allGuess: true,
   fixedPsychic: false,
   coop: false,
+  teamsAllGuess: false,
   rivalBet: true,
   timerSecs: 0,
+  clueSecs: 25,
   revealSecs: 0,
   standingsSecs: 0,
   advanceMode: 'admin',
   skipVotePct: 50,
   tiebreak: true,
+  tiebreakMode: 'sudden',
   randomRotation: false,
   stats: true,
   sound: true,
@@ -111,6 +121,8 @@ export const initialState: GameState = {
   history: [],
   tiebreakKeys: null,
   tiebreakStart: 0,
+  activeTiebreak: null,
+  tiebreakPsychicId: null,
 };
 
 /* ---- selectores ---- */
@@ -131,13 +143,25 @@ function turnIndex(s: GameState, count: number): number {
 }
 
 export function ffaPsychic(s: GameState): Player {
-  // modo presentador: siempre el mismo, incluso en muerte súbita (él no compite)
+  // desempate "duel": la pista la da un eliminado sorteado al empezar la ronda
+  if (s.activeTiebreak === 'duel' && s.tiebreakPsychicId !== null) {
+    const chosen = s.players.find((p) => p.id === s.tiebreakPsychicId);
+    if (chosen) return chosen;
+  }
+  // modo presentador: siempre el mismo, incluso en el desempate (él no compite)
   if (s.psychicId !== null) {
     const fixed = s.players.find((p) => p.id === s.psychicId);
     if (fixed) return fixed;
   }
   const elig = eligiblePlayers(s);
   return elig[turnIndex(s, elig.length)]!;
+}
+
+/** Jugadores que se han quedado fuera del empate: adivinan en "clues", sortean psíquico en "duel". */
+export function tiebreakOutsiders(s: GameState): Player[] {
+  if (!s.tiebreakKeys) return [];
+  const pres = presenterId(s);
+  return s.players.filter((p) => p.id !== pres && !s.tiebreakKeys!.includes(`p${p.id}`));
 }
 
 /** En modo presentador, quien presenta no puntúa ni sale en la clasificación. */
@@ -157,10 +181,13 @@ export function ffaGuesser(s: GameState): Player {
   return elig[(turnIndex(s, elig.length) + 1) % elig.length]!;
 }
 
-/** En "todos adivinan": todos los elegibles menos el psíquico, en orden de turno. */
+/** En "todos adivinan": todos los elegibles menos el psíquico, en orden de turno.
+ *  En los desempates nuevos cambia quién adivina: en "clues" los eliminados, en "duel" los empatados. */
 export function allGuessers(s: GameState): Player[] {
   const psyId = ffaPsychic(s).id;
-  return eligiblePlayers(s).filter((p) => p.id !== psyId);
+  // en "duel" adivinan los empatados (eligiblePlayers), igual que en muerte súbita
+  const pool = s.activeTiebreak === 'clues' ? tiebreakOutsiders(s) : eligiblePlayers(s);
+  return pool.filter((p) => p.id !== psyId);
 }
 
 export function currentGuesser(s: GameState): Player {
@@ -200,6 +227,31 @@ export function rivalTeam(s: GameState): Team {
   return elig[(turnIndex(s, elig.length) + 1) % elig.length]!;
 }
 
+/** Multiplicador del equipo que da la pista cuando adivinan todos los equipos. */
+export const ACTIVE_TEAM_MULT = 3;
+
+/** ¿Adivinan todos a la vez? (jugadores en "ffa", equipos en "teams")
+ *  Los desempates "clues" y "duel" lo dan por hecho: varios adivinan la misma pista. */
+export function simultaneousGuess(s: GameState): boolean {
+  if (s.mode === 'ffa' && s.activeTiebreak && s.activeTiebreak !== 'sudden') return true;
+  return s.mode === 'teams' ? s.options.teamsAllGuess : s.options.allGuess;
+}
+
+/** Equipos que colocan aguja esta ronda, en orden de turno. */
+export function guessingTeams(s: GameState): Team[] {
+  return eligibleTeams(s);
+}
+
+export function teamOf(s: GameState, playerId: number): Team | undefined {
+  return s.teams.find((t) => t.players.some((p) => p.id === playerId));
+}
+
+/** Equipo al que le toca colocar la aguja en local (pasándose el móvil). */
+export function currentGuessTeam(s: GameState): Team {
+  const ts = guessingTeams(s);
+  return ts[Math.min(s.guesserIdx, ts.length - 1)]!;
+}
+
 export function teamPsychic(t: Team): TeamPlayer {
   return t.players[t.psychicIdx % t.players.length]!;
 }
@@ -220,8 +272,11 @@ function joinNames(names: string[]): string {
 }
 
 export function guesserNames(s: GameState): string {
-  if (s.mode === 'teams') return joinNames(teamGuessers(activeTeam(s)).map((p) => p.name));
-  if (s.options.allGuess) return joinNames(allGuessers(s).map((p) => p.name));
+  if (s.mode === 'teams') {
+    if (s.options.teamsAllGuess) return joinNames(s.teams.map((t) => t.name));
+    return joinNames(teamGuessers(activeTeam(s)).map((p) => p.name));
+  }
+  if (simultaneousGuess(s)) return joinNames(allGuessers(s).map((p) => p.name));
   return ffaGuesser(s).name;
 }
 
@@ -357,6 +412,35 @@ function applyRevealAll(s: GameState): GameState {
     pts: scoreFor(s.guesses?.[p.id.toString()] ?? 90, s.target),
   }));
   const maxPts = results.reduce((m, r) => Math.max(m, r.pts), 0);
+
+  // desempate "ellos dan la pista": el psíquico empatado se lleva TODO lo que sumen los eliminados,
+  // y los eliminados no puntúan (ya están fuera). Gana quien más consiga con sus pistas.
+  if (s.activeTiebreak === 'clues') {
+    const total = results.reduce((n, r) => n + r.pts, 0);
+    const players = s.players.map((p) =>
+      p.id === psy.id && total > 0 ? { ...p, score: p.score + total } : p
+    );
+    const history = [
+      ...s.history,
+      {
+        psychic: psy.name,
+        guesser: 'todos',
+        pts: maxPts,
+        betWon: false,
+        all: results.map((r) => ({ name: r.p.name, pts: r.pts })),
+      },
+    ];
+    return {
+      ...s,
+      betWon: false,
+      lastPts: maxPts,
+      lastGains: total > 0 ? [{ key: `p${psy.id}`, label: psy.name, pts: total }] : [],
+      history,
+      players,
+      phase: 'reveal',
+    };
+  }
+
   // el presentador no compite: ni suma por acertantes ni aparece en la clasificación
   const psyPts =
     s.tiebreakKeys || presenterId(s) !== null ? 0 : results.filter((r) => r.pts > 0).length;
@@ -409,6 +493,44 @@ function applyRevealAll(s: GameState): GameState {
     },
   ];
   return { ...s, betWon: false, lastPts: maxPts, lastGains, history, players, phase: 'reveal' };
+}
+
+/** Todos los equipos han colocado su aguja: cada uno puntúa su banda y el del psíquico x3. */
+function applyRevealTeamsAll(s: GameState): GameState {
+  const atIdx = activeTeamIdx(s);
+  const results = s.teams.map((t, i) => {
+    const angle = s.guesses?.[`t${t.id}`] ?? 90;
+    const band = scoreFor(angle, s.target);
+    return { t, band, pts: i === atIdx ? band * ACTIVE_TEAM_MULT : band };
+  });
+  const teams = s.teams.map((t, i) =>
+    results[i]!.pts > 0 ? { ...t, score: t.score + results[i]!.pts } : t
+  );
+  const lastGains = results
+    .filter((r) => r.pts > 0)
+    .map((r) => ({ key: `t${r.t.id}`, label: r.t.name, pts: r.pts }));
+  const at = s.teams[atIdx]!;
+  const history = [
+    ...s.history,
+    {
+      psychic: teamPsychic(at).name,
+      guesser: 'todos',
+      pts: results[atIdx]!.band,
+      betWon: false,
+      all: results.map((r) => ({ name: r.t.name, pts: r.pts })),
+    },
+  ];
+  return {
+    ...s,
+    teams,
+    bet: null,
+    betWon: false,
+    // la banda más alta de la ronda: es la que da el texto y el confeti del reveal
+    lastPts: results.reduce((m, r) => Math.max(m, r.band), 0),
+    lastGains,
+    history,
+    phase: 'reveal',
+  };
 }
 
 function applyRevealTeams(s: GameState, side: BetSide | null): GameState {
@@ -496,6 +618,30 @@ function freshRound(s: GameState): GameState {
     lastGains: [],
     phase: 'handoff',
   };
+}
+
+/** Arranca (o encadena) una ronda de desempate con la forma elegida en los ajustes.
+ *  "clues" y "duel" necesitan a alguien fuera del empate y solo valen en todos contra todos:
+ *  si no se puede, se cae a muerte súbita en vez de romper la partida. */
+function startTiebreak(s: GameState, lead: string[], round: number): GameState {
+  const outsiders = s.players.filter(
+    (p) => p.id !== presenterId(s) && !lead.includes(`p${p.id}`)
+  );
+  const wanted = s.options.tiebreakMode ?? 'sudden';
+  const kind: TiebreakMode =
+    s.mode === 'ffa' && !s.options.fixedPsychic && !s.options.coop && outsiders.length > 0
+      ? wanted
+      : 'sudden';
+  return freshRound({
+    ...s,
+    tiebreakKeys: lead,
+    tiebreakStart: round,
+    round,
+    activeTiebreak: kind,
+    // el psíquico del duelo se sortea de nuevo en cada ronda de desempate
+    tiebreakPsychicId:
+      kind === 'duel' ? outsiders[Math.floor(Math.random() * outsiders.length)]!.id : null,
+  });
 }
 
 /* ---- reducer ---- */
@@ -698,6 +844,8 @@ export function reducer(s: GameState, a: Action): GameState {
         history: [],
         tiebreakKeys: null,
         tiebreakStart: 0,
+        activeTiebreak: null,
+        tiebreakPsychicId: null,
       });
     }
 
@@ -745,7 +893,7 @@ export function reducer(s: GameState, a: Action): GameState {
       return {
         ...s,
         clue: a.text?.trim() || null,
-        phase: s.mode === 'ffa' && s.options.allGuess ? 'guess-handoff' : 'guess',
+        phase: simultaneousGuess(s) ? 'guess-handoff' : 'guess',
       };
 
     case 'BEGIN_GUESS':
@@ -758,7 +906,25 @@ export function reducer(s: GameState, a: Action): GameState {
 
     case 'CONFIRM_GUESS': {
       if (s.phase !== 'guess') return s;
-      if (s.mode === 'ffa' && s.options.allGuess) {
+      if (s.mode === 'teams' && s.options.teamsAllGuess) {
+        const ts = guessingTeams(s);
+        // online llega el playerId del remitente; en local, el equipo que tiene el móvil
+        const team =
+          a.playerId !== undefined
+            ? teamOf(s, a.playerId)
+            : ts[Math.min(s.guesserIdx, ts.length - 1)];
+        if (!team) return s;
+        const key = `t${team.id}`;
+        if (s.guesses?.[key] !== undefined) return s; // ese equipo ya ha confirmado
+        const guesses = { ...(s.guesses ?? {}), [key]: a.angle ?? s.needle };
+        if (ts.every((t) => guesses[`t${t.id}`] !== undefined)) {
+          return applyRevealTeamsAll({ ...s, guesses });
+        }
+        if (a.playerId !== undefined) return { ...s, guesses }; // online: a su ritmo
+        const nextIdx = ts.findIndex((t) => guesses[`t${t.id}`] === undefined);
+        return { ...s, guesses, needle: 90, guesserIdx: nextIdx, phase: 'guess-handoff' };
+      }
+      if (s.mode === 'ffa' && simultaneousGuess(s)) {
         const gs = allGuessers(s);
         const targetId = a.playerId ?? gs[s.guesserIdx]?.id;
         if (targetId === undefined) return s;
@@ -781,8 +947,15 @@ export function reducer(s: GameState, a: Action): GameState {
     }
 
     case 'FINALIZE_GUESSES': {
-      if (s.phase !== 'guess' || !(s.mode === 'ffa' && s.options.allGuess)) return s;
+      if (s.phase !== 'guess' || !simultaneousGuess(s)) return s;
       const guesses = { ...(s.guesses ?? {}) };
+      // a quien no haya confirmado se le deja la aguja en el centro
+      if (s.mode === 'teams') {
+        for (const t of guessingTeams(s)) {
+          if (guesses[`t${t.id}`] === undefined) guesses[`t${t.id}`] = 90;
+        }
+        return applyRevealTeamsAll({ ...s, guesses });
+      }
       for (const p of allGuessers(s)) {
         if (guesses[p.id.toString()] === undefined) guesses[p.id.toString()] = 90;
       }
@@ -822,18 +995,19 @@ export function reducer(s: GameState, a: Action): GameState {
       }
 
       if (next.tiebreakKeys) {
-        const eligCount =
-          next.mode === 'teams' ? eligibleTeams(next).length : eligiblePlayers(next).length;
+        // una "vuelta" de desempate: en el duelo se decide ronda a ronda (siempre adivinan todos
+        // los empatados a la vez), en el resto cada empatado tiene que pasar por psíquico
+        const lapLen =
+          next.activeTiebreak === 'duel'
+            ? 1
+            : next.mode === 'teams'
+              ? eligibleTeams(next).length
+              : eligiblePlayers(next).length;
         const played = next.round + 1 - next.tiebreakStart;
-        if (played % eligCount === 0) {
+        if (lapLen > 0 && played % lapLen === 0) {
           const lead = leaders(next);
           if (lead.length === 1) return { ...next, phase: 'end' };
-          return freshRound({
-            ...next,
-            tiebreakKeys: lead,
-            tiebreakStart: next.round + 1,
-            round: next.round + 1,
-          });
+          return startTiebreak(next, lead, next.round + 1);
         }
         return freshRound({ ...next, round: next.round + 1 });
       }
@@ -842,12 +1016,7 @@ export function reducer(s: GameState, a: Action): GameState {
         const lead = leaders(next);
         const totalCompetitors = competitorCount(next);
         if (next.options.tiebreak && lead.length > 1 && totalCompetitors > 2) {
-          return freshRound({
-            ...next,
-            tiebreakKeys: lead,
-            tiebreakStart: next.round + 1,
-            round: next.round + 1,
-          });
+          return startTiebreak(next, lead, next.round + 1);
         }
         return { ...next, phase: 'end' };
       }
@@ -869,6 +1038,104 @@ export function reducer(s: GameState, a: Action): GameState {
     case 'PLAY_AGAIN':
       if (s.phase !== 'end') return s;
       return reducer({ ...s, phase: 'setup' }, { type: 'START_GAME' });
+
+    case 'RESTART_ROUND':
+      // se repite la ronda tal cual: carta nueva, zona nueva y a empezar
+      if (s.phase === 'menu' || s.phase === 'setup' || s.phase === 'end') return s;
+      return freshRound(s);
+
+    case 'KICK_PLAYERS': {
+      const gone = new Set(a.ids);
+      if (gone.size === 0) return s;
+      let next: GameState = { ...s };
+
+      if (s.mode === 'teams') {
+        const teams = s.teams
+          .map((t) => ({ ...t, players: t.players.filter((p) => !gone.has(p.id)) }))
+          // un equipo de una persona no puede jugar (no habría a quién darle la pista)
+          .filter((t) => t.players.length >= 2);
+        if (teams.length === s.teams.length && totalTeamPlayers(teams) === totalTeamPlayers(s.teams))
+          return s;
+        next.teams = teams;
+      } else {
+        const players = s.players.filter((p) => !gone.has(p.id));
+        if (players.length === s.players.length) return s;
+        next.players = players;
+      }
+
+      // rastros del que se va: agujas, apuestas, empate y psíquico fijo
+      const alive = new Set(
+        next.mode === 'teams'
+          ? next.teams.flatMap((t) => t.players.map((p) => p.id))
+          : next.players.map((p) => p.id)
+      );
+      const aliveTeams = new Set(next.teams.map((t) => `t${t.id}`));
+      const keep = <T>(obj: Record<string, T> | null): Record<string, T> | null => {
+        if (!obj) return null;
+        const out: Record<string, T> = {};
+        for (const [k, v] of Object.entries(obj)) {
+          const ok = k.startsWith('t') ? aliveTeams.has(k) : alive.has(Number(k));
+          if (ok) out[k] = v;
+        }
+        return out;
+      };
+      next.guesses = keep(next.guesses);
+      next.bets = keep(next.bets);
+      if (next.tiebreakKeys) {
+        const keys = next.tiebreakKeys.filter((k) =>
+          k.startsWith('t') ? aliveTeams.has(k) : alive.has(Number(k.slice(1)))
+        );
+        next.tiebreakKeys = keys;
+        // si solo queda uno empatado, ya no hay nada que desempatar
+        if (keys.length < 2) return { ...next, phase: 'end' };
+      }
+      if (next.psychicId !== null && !alive.has(next.psychicId)) {
+        next.psychicId = next.players[0]?.id ?? null;
+      }
+      if (next.tiebreakPsychicId !== null && !alive.has(next.tiebreakPsychicId)) {
+        const outs = tiebreakOutsiders(next);
+        next.tiebreakPsychicId = outs.length > 0 ? outs[Math.floor(Math.random() * outs.length)]!.id : null;
+        if (next.tiebreakPsychicId === null) next.activeTiebreak = 'sudden';
+      }
+
+      // sin rivales no hay partida
+      const left = next.mode === 'teams' ? next.teams.length : next.players.length;
+      if (left < 2) return { ...next, phase: 'end' };
+
+      // a mitad de ronda cambia quién es psíquico o quién adivina: se repite la ronda.
+      // En resultados/clasificación no, que los puntos ya están dados.
+      if (['reveal', 'standings', 'end'].includes(s.phase)) return next;
+      return freshRound(next);
+    }
+
+    case 'ADD_LATE': {
+      // solo entre rondas: quien entra con la partida en marcha se espera a la clasificación
+      if (s.phase !== 'standings') return s;
+      const taken = new Set<number>([
+        ...s.players.map((p) => p.id),
+        ...s.teams.flatMap((t) => t.players.map((p) => p.id)),
+      ]);
+      const fresh = a.entries.filter((e) => !taken.has(e.id));
+      if (fresh.length === 0) return s;
+      const nextId = Math.max(s.nextId, ...fresh.map((e) => e.id + 1));
+      if (s.mode === 'teams') {
+        return {
+          ...s,
+          nextId,
+          teams: s.teams.map((t) => {
+            const mine = fresh.filter((e) => e.teamId === t.id);
+            return mine.length === 0
+              ? t
+              : { ...t, players: [...t.players, ...mine.map((e) => ({ id: e.id, name: e.name }))] };
+          }),
+        };
+      }
+      return {
+        ...s,
+        nextId,
+        players: [...s.players, ...fresh.map((e) => ({ id: e.id, name: e.name, score: 0 }))],
+      };
+    }
 
     case 'RESTORE':
       return a.state;

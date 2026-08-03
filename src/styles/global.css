@@ -2224,3 +2224,279 @@ body {
     transform: translateY(-6px);
   }
 }
+
+/* ---- ficha grande de un jugador (foto, nombre y frase) ---- */
+
+.avatar-btn {
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 50%;
+  flex: none;
+  transition: transform 120ms;
+}
+
+.avatar-btn:hover {
+  transform: scale(1.08);
+}
+
+.avatar-btn:focus-visible {
+  outline: 3px solid var(--teal-700);
+  outline-offset: 2px;
+}
+
+.player-card-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 47, 45, 0.55);
+  backdrop-filter: blur(3px);
+  animation: notice-in 160ms ease-out;
+}
+
+.player-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(340px, 100%);
+  padding: 26px 22px 24px;
+  background: var(--paper);
+  border: 3px solid var(--ink);
+  border-radius: 22px;
+  box-shadow: 7px 7px 0 var(--shadow);
+  text-align: center;
+}
+
+.player-card__avatar {
+  max-width: min(200px, 60vw);
+  max-height: min(200px, 60vw);
+  border-width: 3px;
+}
+
+.player-card__name {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--teal-900);
+  overflow-wrap: anywhere;
+}
+
+.player-card__bio {
+  margin: 0;
+  font-size: 1rem;
+  font-style: italic;
+  opacity: 0.7;
+  overflow-wrap: anywhere;
+}
+
+.player-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.player-card__tag {
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 2px solid var(--ink);
+  background: var(--bezel);
+}
+
+.player-card__close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* ---- lista de lobbies: estado y progreso ---- */
+
+.lobby-item__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lobby-tag {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 2px solid var(--ink);
+  background: var(--bezel);
+  color: var(--ink);
+}
+
+.lobby-tag--live {
+  background: var(--red);
+  border-color: var(--red);
+  color: var(--paper);
+}
+
+.lobby-item--playing {
+  border-style: dashed;
+}
+
+.lobby-item__progress {
+  opacity: 0.75;
+  font-weight: 700;
+}
+
+.late-join-notice {
+  border-left-color: var(--red);
+}
+
+/* ajuste con un control ancho debajo del texto (p. ej. la forma de desempatar) */
+.toggle-row--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.seg--wrap {
+  flex-wrap: wrap;
+}
+
+.seg--wrap .seg__opt {
+  flex: 1 1 30%;
+}
+
+/* ---- responsive: ajustes y lobby en móvil ---- */
+
+@media (max-width: 560px) {
+  /* los ajustes con chips: el título arriba y los botones debajo, sin apretujarse */
+  .toggle-row--static,
+  .toggle-row--stack {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .toggle-row--static .chip-row,
+  .toggle-row--static .seg {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .toggle-row--static .seg__opt {
+    flex: 1 1 auto;
+    min-width: 40%;
+  }
+
+  .toggle-row__hint {
+    font-size: 0.75rem;
+  }
+
+  .custom-timer-input-wrap {
+    margin-left: 0;
+  }
+
+  /* la fila de jugador: nombre arriba y los equipos debajo en vez de salirse */
+  .lobby-player {
+    flex-wrap: wrap;
+    padding: 9px 10px;
+    gap: 8px;
+  }
+
+  .lobby-player .chip-row {
+    margin-left: 0 !important;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .lobby-player__name,
+  .input--inline {
+    min-width: 0;
+    flex: 1 1 100px;
+  }
+
+  .lobby-code {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .lobby-code__id {
+    font-size: 1.3rem;
+    letter-spacing: 0.15em;
+  }
+
+  .limit-row .chip-row,
+  .end-config .chip-row {
+    flex-wrap: wrap;
+  }
+
+  .btn-row {
+    flex-wrap: wrap;
+  }
+
+  .team-box {
+    padding: 10px;
+  }
+
+  .player-card {
+    padding: 22px 16px 20px;
+  }
+}
+
+/* ---- panel del anfitrión dentro de la partida ---- */
+
+.host-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.host-panel__body {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bezel);
+  border: 2.5px solid var(--ink);
+  border-radius: 16px;
+  box-shadow: 3px 3px 0 var(--shadow);
+  animation: notice-in 180ms cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+
+.host-panel__body .lobby-player {
+  box-shadow: 2px 2px 0 var(--shadow);
+  padding: 7px 10px;
+}
+
+.host-panel__body .end-config__hint {
+  margin: 2px 0 0;
+}
+
+.chip--danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: var(--paper);
+}

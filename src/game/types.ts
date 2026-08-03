@@ -8,6 +8,12 @@ export type EndRule =
   | { kind: 'laps'; laps: number }
   | { kind: 'points'; goal: number };
 
+/** Cómo se resuelve un empate al final de la partida.
+ *  - sudden: los empatados siguen jugando entre ellos (muerte súbita de toda la vida)
+ *  - clues: cada empatado da una pista por turno y adivinan los eliminados; se lleva sus puntos
+ *  - duel: un eliminado al azar da la pista y solo adivinan los empatados */
+export type TiebreakMode = 'sudden' | 'clues' | 'duel';
+
 export type Options = {
   /** en "ffa": todos adivinan (a la vez online, por turnos en local) en vez de solo el siguiente */
   allGuess: boolean;
@@ -15,8 +21,12 @@ export type Options = {
   fixedPsychic: boolean;
   /** modo cooperativo: no hay ganador individual, todo suma a un marcador común */
   coop: boolean;
+  /** en "equipos": todos los equipos adivinan a la vez y el del psíquico puntúa x3 */
+  teamsAllGuess: boolean;
   rivalBet: boolean;
   timerSecs: number;
+  /** segundos para dar la pista; a cero se pasa solo a adivinar. 0 = sin límite */
+  clueSecs: number;
   /** segundos para pasar de los resultados a la clasificación; 0 = deshabilitado */
   revealSecs: number;
   /** segundos para pasar solo de la clasificación a la siguiente ronda; 0 = hay que pulsar el botón */
@@ -26,6 +36,8 @@ export type Options = {
   /** porcentaje necesario de votos de jugadores online para avanzar (por defecto 50) */
   skipVotePct: number;
   tiebreak: boolean;
+  /** forma de desempatar elegida en los ajustes (solo una) */
+  tiebreakMode: TiebreakMode;
   randomRotation: boolean;
   stats: boolean;
   sound: boolean;
@@ -109,9 +121,14 @@ export type GameState = {
   lastPts: number;
   lastGains: Gain[];
   history: RoundLog[];
-  /** claves (p{id}/t{id}) de los empatados en muerte súbita, o null */
+  /** claves (p{id}/t{id}) de los empatados en el desempate, o null */
   tiebreakKeys: string[] | null;
   tiebreakStart: number;
+  /** forma de desempate que se está jugando de verdad (puede no ser la de los ajustes
+   *  si no había suficientes eliminados), o null si no hay desempate */
+  activeTiebreak: TiebreakMode | null;
+  /** en el desempate "duel": eliminado al azar que da la pista esta ronda */
+  tiebreakPsychicId: number | null;
 };
 
 export type ModePrefs = {

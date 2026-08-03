@@ -97,6 +97,17 @@ export default function Online({ onExit }: { onExit: () => void }) {
           />
         )}
 
+        {/* recién entrado a una partida en marcha: el estado tarda un instante en llegar */}
+        {lobby.ready && lobby.uid && lobby.lobbyId && playing && !lobby.game && (
+          <section className="panel">
+            <p className="panel__kicker">Partida en marcha</p>
+            <p className="panel__text panel__text--waiting">Cargando la partida…</p>
+            <button className="link-btn" onClick={exit}>
+              ← Salir de la lobby
+            </button>
+          </section>
+        )}
+
         {lobby.ready && lobby.uid && lobby.lobbyId && playing && lobby.game && (
           <OnlineGame
             game={lobby.game}
@@ -109,6 +120,13 @@ export default function Online({ onExit }: { onExit: () => void }) {
             setLiveNeedle={lobby.setLiveNeedle}
             setSkipVote={lobby.setSkipVote}
             backToLobby={lobby.backToLobby}
+            playAgain={() => {
+              // si la gente de ahora no da para rehacer la partida, revancha con la plantilla vieja
+              if (!lobby.startGame()) lobby.sendAction({ type: 'PLAY_AGAIN' });
+            }}
+            onKick={lobby.kickPlayer}
+            onRestartRound={lobby.restartRound}
+            hostUid={lobby.meta?.hostUid ?? ''}
             onLeave={exit}
           />
         )}
